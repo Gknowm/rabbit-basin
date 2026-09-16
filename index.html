@@ -134,6 +134,13 @@
   .maplibregl-ctrl-attrib{font-size:10px;opacity:.85}
   .maplibregl-ctrl-bottom-left{margin-bottom:4px}
 
+  #toast{position:absolute;left:50%;transform:translateX(-50%);
+    bottom:calc(env(safe-area-inset-bottom) + 84px);z-index:9;max-width:80vw;
+    background:rgba(23,21,15,.96);color:var(--playa);padding:12px 16px;border-radius:12px;
+    font-size:13.5px;line-height:1.45;text-align:center;opacity:0;pointer-events:none;
+    transition:opacity .2s}
+  #toast.on{opacity:1}
+
   #compass{display:none}
   #compass.on{display:grid}
   #compass .needle{display:block;transition:transform .15s}
@@ -175,6 +182,7 @@
 <body>
 
 <div id="map"></div>
+<div id="toast"></div>
 <div id="status"><span id="dot"></span><span id="statustext">Loading</span></div>
 
 <div id="tools">
@@ -331,10 +339,87 @@ var map=new maplibregl.Map({
 });
 map.addControl(new maplibregl.NavigationControl({showCompass:false}),"bottom-right");
 map.addControl(new maplibregl.ScaleControl({maxWidth:110,unit:"imperial"}),"bottom-left");
-var geo=new maplibregl.GeolocateControl({positionOptions:{enableHighAccuracy:true},
-  trackUserLocation:true,showAccuracyCircle:true});
-map.addControl(geo);
-document.getElementById("btn-locate").onclick=function(){geo.trigger();};
+/* Our own location handling. The library's control was hidden to keep the
+   button stack tidy, and a hidden control can refuse to fire — so we drive
+   the browser's geolocation directly and can report what went wrong. */
+var meWatch=null, meFix=null, meFollow=false;
+
+map.on("load",function(){
+  map.addSource("me",{type:"geojson",data:{type:"FeatureCollection",features:[]}});
+  map.addLayer({id:"me-acc",type:"circle",source:"me",
+    paint:{"circle-radius":["get","px"],"circle-color":"#2C6FB5","circle-opacity":.15,
+           "circle-stroke-width":1,"circle-stroke-color":"#2C6FB5","circle-stroke-opacity":.35}});
+  map.addLayer({id:"me-dot",type:"circle",source:"me",
+    paint:{"circle-radius":7,"circle-color":"#2C6FB5",
+           "circle-stroke-width":3,"circle-stroke-color":"#FFFFFF"}});
+});
+
+function metresToPx(m,lat){
+  var z=map.getZoom();
+  var mPerPx=156543.03392*Math.cos(lat*Math.PI/180)/Math.pow(2,z);
+  return Math.max(4,Math.min(160,m/mPerPx));
+}
+
+function drawMe(){
+  var src=map.getSource("me");
+  if(!src||!meFix)return;
+  src.setData({type:"FeatureCollection",features:[{
+    type:"Feature",
+    geometry:{type:"Point",coordinates:[meFix.lon,meFix.lat]},
+    properties:{px:metresToPx(meFix.acc,meFix.lat)}
+  }]});
+}
+map.on("zoom",drawMe);
+
+function toast(msg){
+  var t=document.getElementById("toast");
+  t.textContent=msg; t.classList.add("on");
+  clearTimeout(toast._t);
+  toast._t=setTimeout(function(){t.classList.remove("on");},4200);
+}
+
+function startLocating(){
+  if(!navigator.geolocation){toast("This phone will not share its location.");return;}
+  var btn=document.getElementById("btn-locate");
+  btn.classList.add("active");
+
+  if(meFix){                       /* already have a fix: just go there */
+    meFollow=true;
+    map.easeTo({center:[meFix.lon,meFix.lat],zoom:Math.max(map.getZoom(),14)});
+  }
+
+  if(meWatch!==null)return;
+  meWatch=navigator.geolocation.watchPosition(function(pos){
+    var firstFix=!meFix;
+    meFix={lat:pos.coords.latitude,lon:pos.coords.longitude,
+           acc:pos.coords.accuracy||30};
+    drawMe();
+    if(firstFix||meFollow){
+      meFollow=true;
+      map.easeTo({center:[meFix.lon,meFix.lat],zoom:Math.max(map.getZoom(),14)});
+    }
+  },function(err){
+    btn.classList.remove("active");
+    if(meWatch!==null){navigator.geolocation.clearWatch(meWatch);meWatch=null;}
+    if(err.code===1) toast("Location is blocked. Turn it on in Settings > Privacy > Location Services, then in Safari.");
+    else if(err.code===2) toast("No position yet. Outdoors with a clear view of the sky works best.");
+    else toast("Location timed out. Try again.");
+  },{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
+}
+
+function stopLocating(){
+  if(meWatch!==null){navigator.geolocation.clearWatch(meWatch);meWatch=null;}
+  meFollow=false;
+  document.getElementById("btn-locate").classList.remove("active");
+}
+
+/* panning by hand stops the map chasing you, like every other map app */
+map.on("dragstart",function(){meFollow=false;});
+
+document.getElementById("btn-locate").onclick=function(){
+  if(meWatch!==null&&meFollow) stopLocating();
+  else startLocating();
+};
 
 /* ---------- compass ---------- */
 var compass=document.getElementById("compass");
@@ -834,7 +919,8 @@ document.getElementById("bm-imagery").onclick=function(){setBase("imagery");};
 function openSheet(){
   document.getElementById("sheet-layers").classList.add("open");
   document.getElementById("btn-layers").classList.add("active");
-  usage();renderAreas();estimate();wpRefresh();
+  usage();renderAreas();wpRefresh();
+  checkSpace().then(estimate);
 }
 function closeSheets(){
   document.getElementById("sheet-layers").classList.remove("open");
@@ -922,20 +1008,48 @@ function currentBbox(){
 
 function mb(n){return n<1?"under 1 MB":n<1024?n.toFixed(0)+" MB":(n/1024).toFixed(1)+" GB";}
 
+var HARD_CAP_MB=600;        /* one download should never exceed this */
+var freeMB=null;            /* what the browser says we may still store */
+
+function checkSpace(){
+  if(!(navigator.storage&&navigator.storage.estimate))return Promise.resolve(null);
+  return navigator.storage.estimate().then(function(e){
+    if(!e||!e.quota)return null;
+    freeMB=Math.max(0,(e.quota-(e.usage||0))/1048576);
+    return freeMB;
+  }).catch(function(){return null;});
+}
+
 function estimate(){
   var n=urlsFor(currentBbox(),parseInt(zoomSel.value,10)).length;
   var size=n*BYTES_PER_TILE/1048576;
   document.getElementById("est-tiles").textContent=n.toLocaleString();
   document.getElementById("est-size").textContent=mb(size);
 
-  var msg="";
-  if(size>400) msg="That is a very large download and it may not finish. Zoom in, or drop to a lower detail level.";
-  else if(size>150) msg="Large download. On cellular data this will cost you real money — do it on wifi.";
-  else if(size>60) msg="Moderate download. Best done on wifi.";
+  var msg="", block=false;
+
+  if(size>HARD_CAP_MB){
+    msg="Too big to download in one go. Zoom in until this drops below "+
+        HARD_CAP_MB+" MB, or pick a lower detail level. Large areas are meant to be "+
+        "saved as several smaller pieces.";
+    block=true;
+  } else if(freeMB!==null&&size>freeMB*0.8){
+    msg="Not enough room on this phone. About "+mb(freeMB)+" is available and this "+
+        "needs "+mb(size)+". Delete a saved area below, or choose a smaller one.";
+    block=true;
+  } else if(freeMB!==null&&size>freeMB*0.5){
+    msg="This would use most of the space left for saved maps ("+mb(freeMB)+" free).";
+  } else if(size>150){
+    msg="Large download. On cellular this costs real money — do it on wifi.";
+  } else if(size>60){
+    msg="Moderate download. Best done on wifi.";
+  }
+
   warnbox.textContent=msg;
   warnbox.classList.toggle("on",!!msg);
-  saveBtn.disabled=size>1200;
-  return {n:n,size:size};
+  saveBtn.disabled=block;
+  saveBtn.textContent=block?"Area too large":"Save this area";
+  return {n:n,size:size,block:block};
 }
 map.on("moveend",estimate);
 zoomSel.addEventListener("change",estimate);
@@ -1010,13 +1124,15 @@ function removeArea(idx,btn){
   caches.open(TILE_CACHE).then(function(c){
     return Promise.all(drop.map(function(u){return c.delete(u);}));
   }).then(function(){
-    list.splice(idx,1); storeAreas(list); renderAreas(); usage();
+    list.splice(idx,1); storeAreas(list); renderAreas(); usage(); checkSpace().then(estimate);
   });
 }
 
 /* ---- saving ---- */
 saveBtn.onclick=function(){
   if(!navigator.onLine){note.textContent="No connection. Saving needs signal.";return;}
+  var est=estimate();
+  if(est.block){toast("That area is too large to save. Zoom in and try again.");return;}
   var bbox=currentBbox(), maxZ=parseInt(zoomSel.value,10);
   var urls=urlsFor(bbox,maxZ);
   var name=(nameBox.value||"").trim()||autoName(bbox);
@@ -1028,7 +1144,7 @@ saveBtn.onclick=function(){
     bar.classList.remove("on");fill.style.width="0";saveBtn.disabled=false;
     var list=loadAreas();
     list.unshift({name:name,bbox:bbox,maxZ:maxZ,tiles:r.saved,date:Date.now()});
-    storeAreas(list); nameBox.value=""; renderAreas(); usage();
+    storeAreas(list); nameBox.value=""; renderAreas(); usage(); checkSpace().then(estimate);
     note.textContent=r.failed
       ? 'Saved "'+name+'" with '+r.failed.toLocaleString()+" tiles missing. Save again to fill the gaps."
       : 'Saved "'+name+'". This area now works in airplane mode.';
@@ -1057,7 +1173,10 @@ function grab(urls,prog){
 function usage(){
   if(navigator.storage&&navigator.storage.estimate)
     navigator.storage.estimate().then(function(e){
-      document.getElementById("used").textContent=mb((e.usage||0)/1048576);
+      var used=(e.usage||0)/1048576;
+      var txt=mb(used);
+      if(e.quota) txt+=" of "+mb(e.quota/1048576)+" available";
+      document.getElementById("used").textContent=txt;
     });
 }
 usage(); renderAreas();
