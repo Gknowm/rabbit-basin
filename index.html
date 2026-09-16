@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rabbit Basin Field Map</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#17150F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<style>
+  :root{
+    --basalt:#17150F; --basalt2:#24211A; --edge:#3B3629;
+    --playa:#DCD3BE; --sage:#8A907A; --copper:#B4530A; --copperlit:#E07A1F;
+    --paper:#F2EDE2;
+    --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;font-family:var(--ui);background:var(--basalt);overscroll-behavior:none}
+  #map{position:absolute;inset:0}
+
+  #status{position:absolute;top:calc(env(safe-area-inset-top) + 10px);left:10px;z-index:5;
+    display:flex;align-items:center;gap:8px;padding:7px 13px 7px 11px;
+    background:rgba(23,21,15,.92);color:var(--playa);border-radius:999px;
+    font-size:13px;line-height:1;backdrop-filter:blur(6px)}
+  #dot{width:8px;height:8px;border-radius:50%;background:#7FA06A;flex:none}
+  body.offline #dot{background:var(--copperlit)}
+
+  #tools{position:absolute;right:10px;top:calc(env(safe-area-inset-top) + 10px);z-index:5;
+    display:flex;flex-direction:column;gap:8px}
+  .tool{width:46px;height:46px;border:none;border-radius:12px;background:rgba(23,21,15,.92);
+    color:var(--playa);font-size:18px;display:grid;place-items:center;cursor:pointer;backdrop-filter:blur(6px)}
+  .tool:focus-visible{outline:2px solid var(--copperlit);outline-offset:2px}
+  .tool.active{background:var(--copper);color:#fff}
+
+  /* panels */
+  .sheet{position:absolute;left:0;right:0;bottom:0;z-index:6;background:var(--basalt);color:var(--playa);
+    border-radius:18px 18px 0 0;padding:0 18px calc(env(safe-area-inset-bottom) + 20px);
+    max-height:82vh;overflow-y:auto;transform:translateY(100%);
+    transition:transform .28s cubic-bezier(.32,.72,.34,1);box-shadow:0 -10px 40px rgba(0,0,0,.45)}
+  .sheet.open{transform:translateY(0)}
+  @media (prefers-reduced-motion:reduce){.sheet{transition:none}}
+  .sheet h2{margin:0;padding:22px 0 4px;font-size:17px;font-weight:600}
+  .sheet .lede{margin:0 0 10px;font-size:13px;line-height:1.5;color:var(--sage)}
+  .close{position:absolute;right:14px;top:16px;width:34px;height:34px;border:none;border-radius:50%;
+    background:var(--basalt2);color:var(--playa);font-size:17px;cursor:pointer}
+
+  /* layer rows */
+  .layer{display:flex;align-items:center;gap:12px;padding:14px 0;border-top:1px solid var(--basalt2)}
+  .swatch{width:26px;height:26px;border-radius:7px;flex:none;border:1.5px solid rgba(255,255,255,.18)}
+  .layer .txt{flex:1;min-width:0}
+  .layer .nm{font-size:15px;display:block}
+  .layer .src{font-size:12px;color:var(--sage);display:block;margin-top:2px}
+  .layer .miss{color:var(--copperlit)}
+  .sw{position:relative;width:48px;height:28px;flex:none;cursor:pointer}
+  .sw input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
+  .sw i{position:absolute;inset:0;background:var(--basalt2);border-radius:999px;transition:background .18s}
+  .sw i::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;
+    background:var(--playa);transition:transform .18s}
+  .sw input:checked + i{background:var(--copper)}
+  .sw input:checked + i::after{transform:translateX(20px);background:#fff}
+  .sw input:focus-visible + i{outline:2px solid var(--copperlit);outline-offset:2px}
+
+  .sub{padding:0 0 14px 38px}
+  .sub label{display:block;font-size:12.5px;color:var(--sage);margin-bottom:7px}
+  input[type=range]{width:100%;accent-color:var(--copper)}
+
+  .seg{display:flex;gap:6px;margin:6px 0 16px}
+  .seg button{flex:1;padding:11px 8px;background:var(--basalt2);color:var(--playa);border:1px solid var(--edge);
+    border-radius:10px;font:inherit;font-size:14px;cursor:pointer}
+  .seg button[aria-pressed=true]{background:var(--copper);border-color:var(--copper);color:#fff}
+
+  .row{display:flex;justify-content:space-between;align-items:baseline;padding:11px 0;
+    border-top:1px solid var(--basalt2);font-size:14px}
+  .row span:last-child{color:#fff;font-variant-numeric:tabular-nums}
+  select{width:100%;margin-top:8px;padding:11px 12px;background:var(--basalt2);color:var(--playa);
+    border:1px solid var(--edge);border-radius:10px;font:inherit;font-size:15px}
+  label.field{display:block;padding:14px 0 4px;font-size:14px}
+  #save{width:100%;margin-top:16px;padding:15px;background:var(--copper);color:#fff;border:none;
+    border-radius:12px;font:inherit;font-size:16px;font-weight:600;cursor:pointer}
+  #save:disabled{background:var(--basalt2);color:var(--sage)}
+  #note{margin:14px 0 0;font-size:13px;line-height:1.5;color:var(--sage)}
+  #bar{height:4px;margin-top:12px;background:var(--basalt2);border-radius:2px;overflow:hidden;display:none}
+  #bar.on{display:block}
+  #fill{height:100%;width:0;background:var(--copperlit);transition:width .2s linear}
+
+  #legend{position:absolute;left:10px;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:4;
+    background:rgba(23,21,15,.92);color:var(--playa);border-radius:12px;padding:11px 13px;
+    font-size:12px;line-height:1.5;max-width:52vw;backdrop-filter:blur(6px);display:none}
+  #legend.on{display:block}
+  #legend div{display:flex;align-items:center;gap:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #legend b{width:12px;height:12px;border-radius:3px;flex:none}
+
+  .maplibregl-popup-content{background:var(--paper);border-radius:10px;padding:14px 16px;
+    font-family:var(--ui);font-size:13.5px;line-height:1.45;color:#221F18;box-shadow:0 6px 22px rgba(0,0,0,.3)}
+  .maplibregl-popup-content h3{margin:0 0 3px;font-size:15.5px}
+  .maplibregl-popup-content .kicker{font-size:11.5px;color:#7A7364;margin:0 0 9px}
+  .maplibregl-popup-content dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+  .maplibregl-popup-content dt{color:#7A7364}
+  .maplibregl-popup-content dd{margin:0}
+  .maplibregl-popup-content .warn{margin:10px 0 0;padding-top:9px;border-top:1px solid #DCD4C4;
+    font-size:12px;color:#8A4B12}
+  .maplibregl-popup-content a{color:#8A4B12}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+<div id="status"><span id="dot"></span><span id="statustext">Loading</span></div>
+
+<div id="tools">
+  <button class="tool" id="btn-locate" aria-label="Show my location">◎</button>
+  <button class="tool" id="btn-layers" aria-label="Layers">≡</button>
+  <button class="tool" id="btn-offline" aria-label="Offline maps">↓</button>
+</div>
+
+<div id="legend"></div>
+
+<!-- Layers -->
+<div class="sheet" id="sheet-layers">
+  <button class="close" data-close="sheet-layers" aria-label="Close">✕</button>
+  <h2>Layers</h2>
+  <p class="lede">Everything here is saved on the phone. Turning a layer on costs nothing extra.</p>
+
+  <div class="seg" role="group" aria-label="Basemap">
+    <button id="bm-topo" aria-pressed="true">Topo</button>
+    <button id="bm-imagery" aria-pressed="false">Imagery</button>
+  </div>
+
+  <div class="layer">
+    <span class="swatch" style="background:linear-gradient(135deg,#8C340E,#FFFFBF)"></span>
+    <span class="txt"><span class="nm">Geology</span><span class="src" id="src-geology">DOGAMI OGDC</span></span>
+    <span class="sw"><input type="checkbox" id="ck-geology" checked><i></i></span>
+  </div>
+  <div class="sub">
+    <label for="op-geology">Fill strength</label>
+    <input type="range" id="op-geology" min="0" max="80" value="45">
+  </div>
+
+  <div class="layer">
+    <span class="swatch" style="background:linear-gradient(135deg,#F2D98C,#9DBE8A)"></span>
+    <span class="txt"><span class="nm">Land manager</span><span class="src" id="src-sma">BLM Surface Management Agency</span></span>
+    <span class="sw"><input type="checkbox" id="ck-sma"><i></i></span>
+  </div>
+  <div class="sub">
+    <label for="op-sma">Fill strength</label>
+    <input type="range" id="op-sma" min="0" max="80" value="35">
+  </div>
+
+  <div class="layer">
+    <span class="swatch" style="background:#A8321E"></span>
+    <span class="txt"><span class="nm">Mining claims</span><span class="src" id="src-claims">BLM MLRS, not closed</span></span>
+    <span class="sw"><input type="checkbox" id="ck-claims" checked><i></i></span>
+  </div>
+
+  <div class="layer">
+    <span class="swatch" style="background:repeating-linear-gradient(45deg,#6E5A3A 0 3px,transparent 3px 6px)"></span>
+    <span class="txt"><span class="nm">Survey grid</span><span class="src" id="src-plss">BLM PLSS sections and quarters</span></span>
+    <span class="sw"><input type="checkbox" id="ck-plss"><i></i></span>
+  </div>
+</div>
+
+<!-- Offline -->
+<div class="sheet" id="sheet-offline">
+  <button class="close" data-close="sheet-offline" aria-label="Close">✕</button>
+  <h2>Offline maps</h2>
+  <p class="lede">Pan to the ground you want, then save it while you still have signal.</p>
+  <div class="row"><span>Saved map tiles</span><span id="cached">—</span></div>
+  <div class="row"><span>Storage used</span><span id="used">—</span></div>
+  <label class="field" for="zoom">Detail level
+    <select id="zoom">
+      <option value="14">Roads and basins — small</option>
+      <option value="15" selected>Two-tracks visible — medium</option>
+      <option value="16">Maximum detail — large</option>
+    </select>
+  </label>
+  <button id="save">Save the area on screen</button>
+  <div id="bar"><div id="fill"></div></div>
+  <p id="note">Layer data is already saved. This button saves the topo and imagery pictures underneath it.</p>
+</div>
+
+<script src="vendor/maplibre-gl.js"></script>
+<script>
+(function(){
+"use strict";
+
+/* ============================================================
+   START VIEW — nudge these if the map opens somewhere odd.
+   Approximate Rabbit Basin area, Lake County, Oregon.
+   ============================================================ */
+var START=[-119.63,42.73], START_Z=12;
+var TILE_CACHE="field-tiles-v1";
+
+var BASE={
+  topo:{tiles:"https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+        attr:"USGS The National Map"},
+  imagery:{tiles:"https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}",
+        attr:"USGS The National Map"}
+};
+
+/* DOGAMI's own terrane/group colors, taken from the OGDC service legend. */
+var GEO_COLORS={
+  "Quaternary Surficial Deposits":"#FFFFBF","Quaternary Volcanics":"#FFFF80",
+  "High Lava Plains Volcanic Province":"#8C340E","Northern Nevada Volcanics":"#FFAA00",
+  "Neogene volcanic rocks":"#B59D50","Neogene sedimentary rocks":"#736859",
+  "Harney Basin Volcanic Field":"#AB9A82","Lake Owyhee Volcanic Field":"#99956E",
+  "McDermitt Volcanic Field":"#9E8228","Columbia River Basalt Group":"#D6BC65",
+  "Late High Cascade Volcanics":"#FAE966","Early High Cascade Volcanics":"#7A6A64",
+  "Early Western Cascade Volcanics":"#E38D24","Late Western Cascade Volcanics":"#B09A94",
+  "Little Butte Volcanics":"#BD4B2F","John Day/Clarno Group":"#EBDDB7",
+  "Paleogene volcanic rocks":"#6B0202","Paleogene sedimentary rocks":"#FFBD33",
+  "Idaho Group":"#D7B09E","Oregon-Idaho Graben":"#BFA07E",
+  "Strawberry Volcanics":"#914E56","Powder River Volcanic Field":"#5C554C",
+  "Baker Terrane":"#66CDAB","Wallowa Terrane":"#6DBFBF","Olds Ferry Terrane":"#448970",
+  "Pueblo Mountain Metamorphic Complex":"#346F82","Grindstone Terrane":"#1F8500",
+  "Siletz Terrane":"#F2BF46","Tyee Group":"#DBC379","Umpqua Group":"#00B009",
+  "Applegate Group":"#689E57","Western Klamath Terrane":"#1A8752"
+};
+var GEO_FALLBACK="#A89B84";
+
+/* Surface management agency colors, close to the usual federal convention. */
+var SMA_COLORS={
+  "BLM":"#F2D98C","USFS":"#9DBE8A","FS":"#9DBE8A","FWS":"#E0A04A","NPS":"#B89AC4",
+  "BOR":"#8FB6C4","DOD":"#C4A6A0","DOE":"#C4A6A0","BIA":"#C9B27E",
+  "STATE":"#7FA3C4","OTHFED":"#BDB6A6","PVT":"#EFEAE0","PRIVATE":"#EFEAE0"
+};
+
+var map=new maplibregl.Map({
+  container:"map",
+  style:{version:8,
+    sources:{base:{type:"raster",tiles:[BASE.topo.tiles],tileSize:256,maxzoom:16,attribution:BASE.topo.attr}},
+    layers:[{id:"base",type:"raster",source:"base"}]},
+  center:START,zoom:START_Z,maxZoom:17
+});
+map.addControl(new maplibregl.NavigationControl({showCompass:false}),"bottom-right");
+map.addControl(new maplibregl.ScaleControl({maxWidth:110,unit:"imperial"}),"bottom-left");
+var geo=new maplibregl.GeolocateControl({positionOptions:{enableHighAccuracy:true},
+  trackUserLocation:true,showAccuracyCircle:true});
+map.addControl(geo);
+document.getElementById("btn-locate").onclick=function(){geo.trigger();};
+
+/* ---------- helpers ---------- */
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function first(p){for(var i=1;i<arguments.length;i++){var v=p[arguments[i]];
+  if(v!==undefined&&v!==null&&v!=="" &&v!=="Null")return v;}return null;}
+function matchExpr(field,table,fallback){
+  var e=["match",["coalesce",["get",field],""]];
+  Object.keys(table).forEach(function(k){e.push(k,table[k]);});
+  e.push(fallback);return e;
+}
+function rows(list){
+  var r=list.filter(function(x){return x[1];});
+  if(!r.length)return "";
+  return "<dl>"+r.map(function(x){
+    return "<dt>"+esc(x[0])+"</dt><dd>"+esc(String(x[1]))+"</dd>";}).join("")+"</dl>";
+}
+
+/* ---------- layer definitions ---------- */
+var LAYERS=[
+  {
+    id:"geology", file:"data/geology.geojson", check:"ck-geology", src:"src-geology",
+    order:0, defaultOn:true, opacity:0.45, opSlider:"op-geology",
+    fill:function(){return matchExpr("TERRANE_GR",GEO_COLORS,GEO_FALLBACK);},
+    line:"#5A4F3C", lineWidth:0.6,
+    popup:function(p){
+      var unit=first(p,"MAP_UNIT_L");
+      var name=first(p,"MAP_UNIT_N","FORMATION","G_MRG_U_L")||"Geologic unit";
+      var html="<h3>"+esc(name)+"</h3>";
+      html+='<p class="kicker">'+esc([unit,first(p,"AGE_NAME")].filter(Boolean).join(" &middot; "))+"</p>";
+      html+=rows([
+        ["Rock type",first(p,"G_ROCK_TYP","LTH_RK_TYP")],
+        ["Lithology",first(p,"LITH_GEN_U","LITH_M_U_L")],
+        ["Grain size",first(p,"CR_GRN_SIZ")],
+        ["Group",first(p,"TERRANE_GR")],
+        ["Member",first(p,"MEMBER")]
+      ]);
+      var d=first(p,"des");
+      if(d) html+='<p class="warn" style="color:#3D3728;border-top-color:#DCD4C4">'+esc(d)+"</p>";
+      var cite=first(p,"Citation"), link=first(p,"Link");
+      if(cite) html+='<p class="kicker" style="margin:9px 0 0">'+
+        (link?'<a href="'+esc(link)+'" target="_blank" rel="noopener">'+esc(cite)+"</a>":esc(cite))+"</p>";
+      return html;
+    }
+  },
+  {
+    id:"sma", file:"data/ownership.geojson", check:"ck-sma", src:"src-sma",
+    order:1, defaultOn:false, opacity:0.35, opSlider:"op-sma",
+    fill:function(){return matchExpr("ADMIN_AGENCY_CODE",SMA_COLORS,"#C9C2B2");},
+    line:"#5C5443",
+    lineWidth:1,
+    popup:function(p){
+      var ag=first(p,"ADMIN_AGENCY_CODE","AGENCY","OWNER")||"Unknown";
+      return "<h3>"+esc(first(p,"ADMIN_UNIT_NAME","UNIT_NAME","ADMIN_DEPT_CODE")||ag)+"</h3>"+
+        '<p class="kicker">Surface managed by '+esc(ag)+"</p>"+
+        rows([["Department",first(p,"ADMIN_DEPT_CODE")],
+              ["State",first(p,"ADMIN_ST")],
+              ["Source",first(p,"SMA_CODE","GIS_ACRES")]])+
+        '<p class="warn">Land status is a reference layer, not a boundary survey.</p>';
+    }
+  },
+  {
+    id:"plss", file:"data/plss.geojson", check:"ck-plss", src:"src-plss",
+    order:2, defaultOn:false, opacity:0,
+    line:"#6E5A3A", lineWidth:1, dash:[3,3],
+    popup:function(p){
+      return "<h3>"+esc(first(p,"FRSTDIVNO","FRSTDIVID")||"Survey division")+"</h3>"+
+        rows([["Township",first(p,"TWNSHPLAB","PLSSID")],
+              ["Division",first(p,"FRSTDIVID")],
+              ["Survey type",first(p,"FRSTDIVTYP","SURVTYP")]]);
+    }
+  },
+  {
+    id:"claims", file:"data/claims.geojson", check:"ck-claims", src:"src-claims",
+    order:3, defaultOn:true, opacity:0.34,
+    fill:function(){return ["match",["coalesce",["get","CSE_TYPE_CD"],""],
+      "LODE","#A8321E","PLACER","#C4661F","MILLSITE","#8B4A6B","TUNNEL","#6B4A8B","#A8321E"];},
+    line:"#7E210F", lineWidth:2,
+    label:["coalesce",["get","CSE_NAME"],["get","CSE_NR"],""],
+    popup:function(p){
+      var q=Number(first(p,"DATA_QLTY_SCR","DATA_QUALITY_SCORE"));
+      var conf="";
+      if(!isNaN(q)&&first(p,"DATA_QLTY_SCR","DATA_QUALITY_SCORE")!==null){
+        if(q<=3) conf="Matched directly to the survey grid. This outline is about as good as BLM data gets.";
+        else if(q<=8) conf="Estimated from the survey grid. Treat the outline as approximate.";
+        else if(q<=10) conf="Located only to the section. The claim is somewhere inside this square mile.";
+        else if(q===15) conf="Partly mapped. Some of this claim has no location data at all.";
+        else if(q===100) conf="Hand-corrected by BLM staff.";
+        else conf="Weakly located. Do not rely on this outline.";
+      }
+      return "<h3>"+esc(first(p,"CSE_NAME")||"Mining claim")+"</h3>"+
+        '<p class="kicker">'+esc(first(p,"CSE_NR","SERIAL_NR")||"")+"</p>"+
+        rows([["Type",first(p,"CSE_TYPE_CD","CSE_TYPE")],
+              ["Status",first(p,"CSE_DISP_CD","CSE_DISP")],
+              ["Claimant",first(p,"CLAIMANT_NAME","CSE_CLMNT")],
+              ["Located",first(p,"LOCATION_DT","CSE_LOC_DT")],
+              ["Township",first(p,"TWP_NR")]])+
+        '<p class="warn">'+(conf?esc(conf)+" ":"")+
+        "BLM only records claims down to the affected quarter sections. The staked corners are in the Notice of Location in the case file.</p>";
+    }
+  }
+];
+
+/* ---------- load ---------- */
+var loaded={};
+map.on("load",function(){
+  LAYERS.forEach(function(L){
+    fetch(L.file).then(function(r){return r.ok?r.json():null;}).then(function(g){
+      if(!g||!g.features||!g.features.length){markMissing(L);return;}
+      build(L,g);
+      loaded[L.id]=true;
+      var ck=document.getElementById(L.check);
+      ck.disabled=false;
+      setVisible(L,ck.checked);
+      document.getElementById(L.src).textContent=
+        g.features.length.toLocaleString()+" features saved";
+    }).catch(function(){markMissing(L);});
+  });
+  buildLegend();
+});
+
+function markMissing(L){
+  var el=document.getElementById(L.src);
+  el.textContent="Not downloaded yet — run fetch-data.sh";
+  el.classList.add("miss");
+  var ck=document.getElementById(L.check);
+  ck.checked=false; ck.disabled=true;
+}
+
+function build(L,geoj){
+  map.addSource(L.id,{type:"geojson",data:geoj});
+  var vis=L.defaultOn?"visible":"none";
+
+  if(L.opacity>0&&L.fill){
+    map.addLayer({id:L.id+"-f",type:"fill",source:L.id,layout:{visibility:vis},
+      paint:{"fill-color":L.fill(),"fill-opacity":L.opacity}});
+  }
+  map.addLayer({id:L.id+"-l",type:"line",source:L.id,layout:{visibility:vis},
+    paint:Object.assign({"line-color":L.line,"line-width":L.lineWidth||1},
+      L.dash?{"line-dasharray":L.dash}:{})});
+
+  if(L.label){
+    map.addLayer({id:L.id+"-t",type:"symbol",source:L.id,minzoom:13,
+      layout:{visibility:vis,"text-field":L.label,"text-size":12,"text-allow-overlap":false},
+      paint:{"text-color":"#2C1A12","text-halo-color":"rgba(242,237,226,.92)","text-halo-width":1.6}});
+  }
+
+  var hit=(L.opacity>0&&L.fill)?L.id+"-f":L.id+"-l";
+  map.on("click",hit,function(e){
+    if(e.originalEvent && e.originalEvent._claimed) return;
+    if(L.id==="claims" && e.originalEvent) e.originalEvent._claimed=true;
+    new maplibregl.Popup({maxWidth:"300px"})
+      .setLngLat(e.lngLat).setHTML(L.popup(e.features[0].properties)).addTo(map);
+  });
+}
+
+function setVisible(L,on){
+  ["-f","-l","-t"].forEach(function(s){
+    if(map.getLayer(L.id+s)) map.setLayoutProperty(L.id+s,"visibility",on?"visible":"none");
+  });
+  if(L.id==="geology") document.getElementById("legend").classList.toggle("on",on);
+}
+
+LAYERS.forEach(function(L){
+  var ck=document.getElementById(L.check);
+  ck.checked=L.defaultOn; ck.disabled=true;
+  ck.addEventListener("change",function(){ if(loaded[L.id]) setVisible(L,ck.checked); });
+  if(L.opSlider){
+    document.getElementById(L.opSlider).addEventListener("input",function(){
+      if(map.getLayer(L.id+"-f")) map.setPaintProperty(L.id+"-f","fill-opacity",this.value/100);
+    });
+  }
+});
+
+function buildLegend(){
+  var pick=["Quaternary Surficial Deposits","Quaternary Volcanics",
+            "High Lava Plains Volcanic Province","Northern Nevada Volcanics",
+            "Neogene volcanic rocks","Neogene sedimentary rocks"];
+  document.getElementById("legend").innerHTML=pick.map(function(k){
+    return '<div><b style="background:'+GEO_COLORS[k]+'"></b>'+esc(k)+"</div>";
+  }).join("");
+}
+
+/* ---------- basemap ---------- */
+function setBase(k){
+  map.getSource("base").setTiles([BASE[k].tiles]);
+  document.getElementById("bm-topo").setAttribute("aria-pressed",String(k==="topo"));
+  document.getElementById("bm-imagery").setAttribute("aria-pressed",String(k==="imagery"));
+}
+document.getElementById("bm-topo").onclick=function(){setBase("topo");};
+document.getElementById("bm-imagery").onclick=function(){setBase("imagery");};
+
+/* ---------- sheets ---------- */
+function openSheet(id){
+  document.querySelectorAll(".sheet").forEach(function(s){s.classList.toggle("open",s.id===id);});
+  document.getElementById("btn-layers").classList.toggle("active",id==="sheet-layers");
+  document.getElementById("btn-offline").classList.toggle("active",id==="sheet-offline");
+  if(id==="sheet-offline") usage();
+}
+function closeSheets(){
+  document.querySelectorAll(".sheet").forEach(function(s){s.classList.remove("open");});
+  document.getElementById("btn-layers").classList.remove("active");
+  document.getElementById("btn-offline").classList.remove("active");
+}
+document.getElementById("btn-layers").onclick=function(){
+  this.classList.contains("active")?closeSheets():openSheet("sheet-layers");};
+document.getElementById("btn-offline").onclick=function(){
+  this.classList.contains("active")?closeSheets():openSheet("sheet-offline");};
+document.querySelectorAll("[data-close]").forEach(function(b){b.onclick=closeSheets;});
+
+/* ---------- status ---------- */
+var st=document.getElementById("statustext");
+function showStatus(){
+  document.body.classList.toggle("offline",!navigator.onLine);
+  st.textContent=navigator.onLine?"Online":"Offline — using saved maps";
+}
+addEventListener("online",showStatus);addEventListener("offline",showStatus);showStatus();
+
+/* ---------- offline tiles ---------- */
+var saveBtn=document.getElementById("save"),bar=document.getElementById("bar"),
+    fill=document.getElementById("fill"),note=document.getElementById("note");
+
+function x2(l,z){return Math.floor((l+180)/360*Math.pow(2,z));}
+function y2(l,z){var r=l*Math.PI/180;
+  return Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*Math.pow(2,z));}
+
+saveBtn.onclick=function(){
+  if(!navigator.onLine){note.textContent="No connection. Saving needs signal.";return;}
+  var mz=parseInt(document.getElementById("zoom").value,10),urls=[];
+  for(var z=11;z<=mz;z++){
+    var b=map.getBounds();
+    for(var x=x2(b.getWest(),z);x<=x2(b.getEast(),z);x++)
+      for(var y=y2(b.getNorth(),z);y<=y2(b.getSouth(),z);y++){
+        urls.push(BASE.topo.tiles.replace("{z}",z).replace("{x}",x).replace("{y}",y));
+        urls.push(BASE.imagery.tiles.replace("{z}",z).replace("{x}",x).replace("{y}",y));
+      }
+  }
+  saveBtn.disabled=true;bar.classList.add("on");
+  note.textContent="Saving "+urls.length.toLocaleString()+" tiles. Keep this screen open.";
+  grab(urls,function(d,t){fill.style.width=(d/t*100)+"%";}).then(function(r){
+    bar.classList.remove("on");fill.style.width="0";saveBtn.disabled=false;
+    note.textContent=r.failed?("Saved "+r.saved.toLocaleString()+" tiles. "+r.failed.toLocaleString()+
+      " failed — save again to fill the gaps."):"Saved. This area now works in airplane mode.";
+    usage();
+  });
+};
+
+function grab(urls,prog){
+  return caches.open(TILE_CACHE).then(function(c){
+    var i=0,ok=0,bad=0,n=urls.length;
+    function next(){
+      if(i>=n)return Promise.resolve();
+      var u=urls[i++];
+      return c.match(u).then(function(h){
+        if(h){ok++;return;}
+        return fetch(u,{mode:"cors"}).then(function(r){
+          if(!r.ok)throw 0;return c.put(u,r.clone());}).then(function(){ok++;})
+          .catch(function(){return fetch(u,{mode:"no-cors"}).then(function(r){return c.put(u,r);})
+            .then(function(){ok++;}).catch(function(){bad++;});});
+      }).then(function(){prog(ok+bad,n);return next();});
+    }
+    var lanes=[];for(var k=0;k<6;k++)lanes.push(next());
+    return Promise.all(lanes).then(function(){return {saved:ok,failed:bad};});
+  });
+}
+
+function usage(){
+  caches.open(TILE_CACHE).then(function(c){return c.keys();}).then(function(k){
+    document.getElementById("cached").textContent=k.length?k.length.toLocaleString()+" tiles":"Nothing yet";
+  }).catch(function(){});
+  if(navigator.storage&&navigator.storage.estimate)
+    navigator.storage.estimate().then(function(e){
+      var mb=(e.usage||0)/1048576;
+      document.getElementById("used").textContent=mb<1?"under 1 MB":mb.toFixed(0)+" MB";
+    });
+}
+usage();
+
+if("serviceWorker" in navigator)
+  addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});
+if(navigator.storage&&navigator.storage.persist) navigator.storage.persist();
+})();
+</script>
+</body>
+</html>
