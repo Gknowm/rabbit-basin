@@ -58,6 +58,9 @@ SOURCES = [
         "url": "https://gis.dogami.oregon.gov/arcgis/rest/services/Public/OGDC6/MapServer/2/query",
         "where": "1=1",
         "page": 1000,
+        "keep": ["MAP_UNIT_L","MAP_UNIT_N","FORMATION","G_MRG_U_L","AGE_NAME","G_ROCK_TYP",
+                 "LTH_RK_TYP","LITH_GEN_U","LITH_M_U_L","CR_GRN_SIZ","TERRANE_GR","MEMBER",
+                 "des","Citation","Link"],
     },
     {
         "name": "Mining claims",
@@ -66,13 +69,15 @@ SOURCES = [
         "url": "https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_Mining_Claims_Not_Closed/FeatureServer/0/query",
         "where": "1=1",
         "page": 2000,
+        "keep": ["OBJECTID","CSE_NAME","CSE_NR","CSE_TYPE_NR","CSE_DISP","QLTY",
+                 "RCRD_ACRS","LEG_CSE_NR"],
     },
     {
         "name": "Land manager",
         "out": "ownership.geojson",
         "who": "BLM Surface Management Agency",
- 	"url": "https://gis.blm.gov/arcgis/rest/services/admin_boundaries/BLM_Natl_SMA_Cached_without_PriUnk/MapServer/1/query", 
-	"where": "1=1",
+        "url": "https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_LimitedScale/MapServer/1/query",
+        "where": "1=1",
         "page": 1000,
     },
     {
@@ -82,6 +87,7 @@ SOURCES = [
         "url": "https://gis.blm.gov/arcgis/rest/services/Cadastral/BLM_Natl_PLSS_CadNSDI/MapServer/2/query",
         "where": "1=1",
         "page": 1000,
+        "keep": ["FRSTDIVNO","FRSTDIVID","PLSSID","TWNSHPLAB","FRSTDIVTYP"],
     },
 ]
 
@@ -115,6 +121,31 @@ def query_url(src, offset, count, geometry_only=True):
     return src["url"] + "?" + urllib.parse.urlencode(params)
 
 
+PRECISION = 6   # ~4 inches on the ground; source gives ~15 decimals
+
+
+def trim_coords(node):
+    """Round every coordinate in a nested list to PRECISION decimals."""
+    if isinstance(node, list):
+        if node and isinstance(node[0], (int, float)):
+            return [round(v, PRECISION) for v in node]
+        return [trim_coords(v) for v in node]
+    return node
+
+
+def slim(feature, keep):
+    props = feature.get("properties") or {}
+    if keep:
+        props = {k: v for k, v in props.items() if k in keep and v not in (None, "", "Null")}
+    else:
+        props = {k: v for k, v in props.items() if v not in (None, "", "Null")}
+    geom = feature.get("geometry")
+    if geom and "coordinates" in geom:
+        geom = dict(geom)
+        geom["coordinates"] = trim_coords(geom["coordinates"])
+    return {"type": "Feature", "properties": props, "geometry": geom}
+
+
 def fetch_layer(src):
     features = []
     offset = 0
@@ -144,6 +175,8 @@ def fetch_layer(src):
             break
 
     sys.stdout.write("\r" + " " * 40 + "\r")
+    keep = set(src.get("keep") or [])
+    features = [slim(f, keep) for f in features]
     return {"type": "FeatureCollection", "features": features}
 
 

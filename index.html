@@ -38,9 +38,11 @@
   /* panels */
   .sheet{position:absolute;left:0;right:0;bottom:0;z-index:6;background:var(--basalt);color:var(--playa);
     border-radius:18px 18px 0 0;padding:0 18px calc(env(safe-area-inset-bottom) + 20px);
-    max-height:82vh;overflow-y:auto;transform:translateY(100%);
-    transition:transform .28s cubic-bezier(.32,.72,.34,1);box-shadow:0 -10px 40px rgba(0,0,0,.45)}
-  .sheet.open{transform:translateY(0)}
+    max-height:82vh;overflow-y:auto;transform:translateY(105%);visibility:hidden;
+    transition:transform .28s cubic-bezier(.32,.72,.34,1),visibility 0s linear .28s;
+    box-shadow:0 -10px 40px rgba(0,0,0,.45)}
+  .sheet.open{transition:transform .28s cubic-bezier(.32,.72,.34,1),visibility 0s}
+  .sheet.open{transform:translateY(0);visibility:visible}
   @media (prefers-reduced-motion:reduce){.sheet{transition:none}}
   .sheet h2{margin:0;padding:22px 0 4px;font-size:17px;font-weight:600}
   .sheet .lede{margin:0 0 10px;font-size:13px;line-height:1.5;color:var(--sage)}
@@ -55,8 +57,9 @@
   .layer .src{font-size:12px;color:var(--sage);display:block;margin-top:2px}
   .layer .miss{color:var(--copperlit)}
   .sw{position:relative;width:48px;height:28px;flex:none;cursor:pointer}
-  .sw input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
-  .sw i{position:absolute;inset:0;background:var(--basalt2);border-radius:999px;transition:background .18s}
+  .sw input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:2}
+  .sw i{position:absolute;inset:0;background:var(--basalt2);border-radius:999px;transition:background .18s;
+    pointer-events:none;z-index:1}
   .sw i::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;
     background:var(--playa);transition:transform .18s}
   .sw input:checked + i{background:var(--copper)}
@@ -121,6 +124,32 @@
   .nav button:disabled{opacity:.35;cursor:default}
   .maplibregl-popup-content{max-height:56vh;overflow-y:auto}
 
+  /* we drive location from our own button; hide the library's */
+  .maplibregl-ctrl-top-right{display:none}
+  .maplibregl-ctrl-bottom-right{margin-bottom:6px}
+  .maplibregl-ctrl-attrib{font-size:10px;opacity:.85}
+  .maplibregl-ctrl-bottom-left{margin-bottom:4px}
+
+  #compass{display:none}
+  #compass.on{display:grid}
+  #compass .needle{display:block;transition:transform .15s}
+
+  #placing{position:absolute;left:50%;transform:translateX(-50%);
+    top:calc(env(safe-area-inset-top) + 68px);z-index:7;
+    background:var(--copper);color:#fff;padding:11px 18px;border-radius:999px;
+    font-size:14px;box-shadow:0 4px 18px rgba(0,0,0,.4);display:none;white-space:nowrap}
+  #placing.on{display:block}
+
+  .wp{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--basalt2)}
+  .wp .txt{flex:1;min-width:0}
+  .wp .nm{font-size:14.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wp .sub2{font-size:12px;color:var(--sage);display:block;margin-top:2px;font-variant-numeric:tabular-nums}
+  .wp button{border:none;background:var(--basalt2);color:var(--sage);border-radius:9px;
+    padding:9px 13px;font:inherit;font-size:13px;cursor:pointer;flex:none}
+  #wplist .none{padding:14px 0;border-top:1px solid var(--basalt2);font-size:13px;color:var(--sage)}
+
+  .sec{padding-top:26px}
+
   .maplibregl-popup-content{background:var(--paper);border-radius:10px;padding:14px 16px;
     font-family:var(--ui);font-size:13.5px;line-height:1.45;color:#221F18;box-shadow:0 6px 22px rgba(0,0,0,.3)}
   .maplibregl-popup-content h3{margin:0 0 3px;font-size:15.5px}
@@ -131,6 +160,12 @@
   .maplibregl-popup-content .warn{margin:10px 0 0;padding-top:9px;border-top:1px solid #DCD4C4;
     font-size:12px;color:#8A4B12}
   .maplibregl-popup-content a{color:#8A4B12}
+  .maplibregl-popup-content .acts{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px;
+    padding-top:10px;border-top:1px solid #DCD4C4}
+  .maplibregl-popup-content .acts a,
+  .maplibregl-popup-content .acts button{border:1px solid #CFC7B5;background:#E9E3D6;
+    color:#5C3A14;border-radius:8px;padding:8px 11px;font:inherit;font-size:12.5px;
+    cursor:pointer;text-decoration:none;line-height:1}
 </style>
 </head>
 <body>
@@ -140,9 +175,17 @@
 
 <div id="tools">
   <button class="tool" id="btn-locate" aria-label="Show my location">◎</button>
-  <button class="tool" id="btn-layers" aria-label="Layers">≡</button>
-  <button class="tool" id="btn-offline" aria-label="Offline maps">↓</button>
+  <button class="tool" id="btn-wp" aria-label="Drop a waypoint">✚</button>
+  <button class="tool" id="compass" aria-label="Point map north">
+    <svg class="needle" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+      <polygon points="10,2 13.4,11 10,9 6.6,11" fill="#D6503A"/>
+      <polygon points="10,18 6.6,9 10,11 13.4,9" fill="#DCD3BE"/>
+    </svg>
+  </button>
+  <button class="tool" id="btn-layers" aria-label="Menu">≡</button>
 </div>
+
+<div id="placing">Tap the map to drop a point</div>
 
 <!-- Layers -->
 <div class="sheet" id="sheet-layers">
@@ -187,12 +230,18 @@
     <span class="txt"><span class="nm">Survey grid</span><span class="src" id="src-plss">BLM PLSS sections and quarters</span></span>
     <span class="sw"><input type="checkbox" id="ck-plss"><i></i></span>
   </div>
-</div>
 
-<!-- Offline -->
-<div class="sheet" id="sheet-offline">
-  <button class="close" data-close="sheet-offline" aria-label="Close">✕</button>
-  <h2>Offline maps</h2>
+  <div class="layer">
+    <span class="swatch" style="background:#E07A1F"></span>
+    <span class="txt"><span class="nm">My points</span><span class="src" id="src-wp">None yet</span></span>
+    <span class="sw"><input type="checkbox" id="ck-wp" checked><i></i></span>
+  </div>
+
+  <h2 class="sec">My points</h2>
+  <p class="lede">Press and hold anywhere on the map to drop a point, or tap ✚ then tap. Saved on this phone only.</p>
+  <div id="wplist"></div>
+
+<h2 class="sec">Offline maps</h2>
   <p class="lede">Pan to the ground you want, then save it while you still have signal.</p>
 
   <label class="field" for="areaname">Name this area
@@ -219,6 +268,7 @@
   <h2 style="padding-top:26px">Saved areas</h2>
   <p class="lede">Storage used: <span id="used">—</span></p>
   <div id="areas"></div>
+
 </div>
 
 <script src="vendor/maplibre-gl.js"></script>
@@ -281,6 +331,135 @@ var geo=new maplibregl.GeolocateControl({positionOptions:{enableHighAccuracy:tru
   trackUserLocation:true,showAccuracyCircle:true});
 map.addControl(geo);
 document.getElementById("btn-locate").onclick=function(){geo.trigger();};
+
+/* ---------- compass ---------- */
+var compass=document.getElementById("compass");
+var needle=compass.querySelector(".needle");
+map.on("rotate",function(){
+  var b=map.getBearing();
+  needle.style.transform="rotate("+(-b)+"deg)";
+  compass.classList.toggle("on",Math.abs(b)>1);
+});
+compass.onclick=function(){ map.easeTo({bearing:0,pitch:0,duration:400}); };
+
+/* ---------- waypoints ---------- */
+var WP_KEY="field-waypoints-v1";
+var placing=false;
+var placeBanner=document.getElementById("placing");
+
+function wpLoad(){try{return JSON.parse(localStorage.getItem(WP_KEY))||[];}catch(e){return [];}}
+function wpStore(a){try{localStorage.setItem(WP_KEY,JSON.stringify(a));}catch(e){}}
+function wpGeo(){
+  return {type:"FeatureCollection",features:wpLoad().map(function(w,i){
+    return {type:"Feature",id:i,
+      geometry:{type:"Point",coordinates:[w.lon,w.lat]},
+      properties:{name:w.name,idx:i}};
+  })};
+}
+function wpRefresh(){
+  var src=map.getSource("wp");
+  if(src)src.setData(wpGeo());
+  var list=wpLoad();
+  document.getElementById("src-wp").textContent=
+    list.length?list.length+(list.length===1?" point":" points"):"None yet";
+  var el=document.getElementById("wplist");
+  if(!list.length){
+    el.innerHTML='<div class="none">Nothing yet. Tap ✚ then tap the map.</div>';
+    return;
+  }
+  el.innerHTML=list.map(function(w,i){
+    return '<div class="wp"><span class="txt"><span class="nm">'+esc(w.name)+'</span>'+
+      '<span class="sub2">'+w.lat.toFixed(5)+", "+w.lon.toFixed(5)+'</span></span>'+
+      '<button data-wpgo="'+i+'">Go</button><button data-wpdel="'+i+'">Delete</button></div>';
+  }).join("");
+  el.querySelectorAll("[data-wpgo]").forEach(function(b){
+    b.onclick=function(){
+      var w=wpLoad()[+b.dataset.wpgo];
+      map.easeTo({center:[w.lon,w.lat],zoom:Math.max(map.getZoom(),15)});
+      closeSheets();
+    };
+  });
+  el.querySelectorAll("[data-wpdel]").forEach(function(b){
+    b.onclick=function(){
+      if(b.dataset.sure!=="1"){b.dataset.sure="1";b.textContent="Sure?";
+        setTimeout(function(){if(b.dataset.sure==="1"){b.dataset.sure="";b.textContent="Delete";}},4000);
+        return;}
+      var a=wpLoad();a.splice(+b.dataset.wpdel,1);wpStore(a);wpRefresh();
+    };
+  });
+}
+
+/* Long-press anywhere on the map drops a point. iOS Safari wants to run its
+   own press-and-hold menu, so we time the touch ourselves, cancel the default,
+   and bail out if the finger moves (that's a pan, not a press). */
+(function longPress(){
+  var timer=null, startPt=null, fired=false;
+  var HOLD=550, SLOP=12;
+
+  function begin(pt,lngLat){
+    cancel(); fired=false; startPt=pt;
+    timer=setTimeout(function(){
+      fired=true; timer=null;
+      if(navigator.vibrate)try{navigator.vibrate(18);}catch(e){}
+      dropAt(lngLat);
+    },HOLD);
+  }
+  function moved(pt){
+    if(!timer||!startPt)return;
+    if(Math.abs(pt.x-startPt.x)>SLOP||Math.abs(pt.y-startPt.y)>SLOP)cancel();
+  }
+  function cancel(){ if(timer){clearTimeout(timer);timer=null;} }
+
+  var c=map.getCanvasContainer();
+  c.addEventListener("contextmenu",function(e){e.preventDefault();});
+
+  map.on("touchstart",function(e){
+    if(e.points&&e.points.length>1){cancel();return;}
+    begin(e.point,e.lngLat);
+  });
+  map.on("touchmove",function(e){ moved(e.point); });
+  map.on("touchend",function(e){
+    cancel();
+    if(fired&&e.originalEvent){e.originalEvent.preventDefault();fired=false;}
+  });
+  map.on("touchcancel",cancel);
+  map.on("dragstart",cancel);
+  map.on("zoomstart",cancel);
+
+  /* desktop: press and hold the mouse button */
+  map.on("mousedown",function(e){ begin(e.point,e.lngLat); });
+  map.on("mousemove",function(e){ moved(e.point); });
+  map.on("mouseup",cancel);
+
+  /* the click handler must not also fire right after a long press */
+  window.__wpJustDropped=0;
+})();
+
+function dropAt(lngLat){
+  var name=prompt("Name this point","Point "+(wpLoad().length+1));
+  window.__wpJustDropped=Date.now();
+  placing=false;
+  document.getElementById("btn-wp").classList.remove("active");
+  placeBanner.classList.remove("on");
+  if(name===null)return;
+  var a=wpLoad();
+  a.push({name:(name||"").trim()||("Point "+(a.length+1)),
+          lat:lngLat.lat,lon:lngLat.lng,date:Date.now()});
+  wpStore(a);wpRefresh();
+}
+
+document.getElementById("btn-wp").onclick=function(){
+  placing=!placing;
+  this.classList.toggle("active",placing);
+  placeBanner.classList.toggle("on",placing);
+  closeSheets();
+};
+
+document.getElementById("ck-wp").addEventListener("change",function(){
+  ["wp-dot","wp-ring","wp-label"].forEach(function(id){
+    if(map.getLayer(id))map.setLayoutProperty(id,"visibility",this.checked?"visible":"none");
+  },this);
+});
 
 /* ---------- helpers ---------- */
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){
@@ -412,6 +591,18 @@ var LAYERS=[
 /* ---------- load ---------- */
 var loaded={};
 map.on("load",function(){
+  map.addSource("wp",{type:"geojson",data:wpGeo()});
+  map.addLayer({id:"wp-ring",type:"circle",source:"wp",
+    paint:{"circle-radius":9,"circle-color":"#E07A1F","circle-opacity":.25}});
+  map.addLayer({id:"wp-dot",type:"circle",source:"wp",
+    paint:{"circle-radius":5.5,"circle-color":"#E07A1F",
+           "circle-stroke-width":2,"circle-stroke-color":"#FFF7EC"}});
+  map.addLayer({id:"wp-label",type:"symbol",source:"wp",minzoom:12,
+    layout:{"text-field":["get","name"],"text-size":12,"text-offset":[0,1.1],
+            "text-anchor":"top","text-allow-overlap":false},
+    paint:{"text-color":"#3A2208","text-halo-color":"rgba(255,247,236,.95)","text-halo-width":1.8}});
+  wpRefresh();
+
   LAYERS.forEach(function(L){
     fetch(L.file).then(function(r){return r.ok?r.json():null;}).then(function(g){
       if(!g||!g.features||!g.features.length){markMissing(L);return;}
@@ -465,6 +656,48 @@ function build(L,geoj){
    visible layers, claims first, and lets you page through the stack. */
 var openPopup=null;
 map.on("click",function(e){
+  /* swallow the click that trails a long press */
+  if(Date.now()-(window.__wpJustDropped||0)<700)return;
+
+  /* ✚ mode: next tap drops a point */
+  if(placing){ dropAt(e.lngLat); return; }
+
+  /* an existing point takes priority over anything under it */
+  var wpHit=map.queryRenderedFeatures(
+    [[e.point.x-10,e.point.y-10],[e.point.x+10,e.point.y+10]],{layers:["wp-dot"]});
+  if(wpHit.length){
+    var w=wpLoad()[wpHit[0].properties.idx];
+    if(w){
+      if(openPopup)openPopup.remove();
+      openPopup=new maplibregl.Popup({maxWidth:"260px"}).setLngLat([w.lon,w.lat])
+        .setHTML("<h3>"+esc(w.name)+"</h3>"+
+          '<p class="kicker" id="wpco">'+w.lat.toFixed(5)+", "+w.lon.toFixed(5)+"</p>"+
+          '<div class="acts">'+
+            '<a href="https://maps.apple.com/?daddr='+w.lat+","+w.lon+'&dirflg=d">Apple Maps</a>'+
+            '<a href="https://www.google.com/maps/dir/?api=1&destination='+w.lat+","+w.lon+'&travelmode=driving">Google Maps</a>'+
+            '<button id="wpcopy">Copy coords</button>'+
+            '<button id="wprename">Rename</button>'+
+          "</div>").addTo(map);
+      var co=w.lat.toFixed(5)+", "+w.lon.toFixed(5);
+      var cb=document.getElementById("wpcopy");
+      if(cb)cb.onclick=function(){
+        var done=function(){cb.textContent="Copied";setTimeout(function(){cb.textContent="Copy coords";},1600);};
+        if(navigator.clipboard&&navigator.clipboard.writeText)
+          navigator.clipboard.writeText(co).then(done,done);
+        else{var t=document.createElement("textarea");t.value=co;document.body.appendChild(t);
+             t.select();try{document.execCommand("copy");}catch(e){}t.remove();done();}
+      };
+      var rb=document.getElementById("wprename");
+      if(rb)rb.onclick=function(){
+        var n=prompt("Rename this point",w.name);
+        if(n===null)return;
+        var a=wpLoad();a[wpHit[0].properties.idx].name=(n||"").trim()||w.name;
+        wpStore(a);wpRefresh();openPopup.remove();
+      };
+      return;
+    }
+  }
+
   var pad=6;
   var box=[[e.point.x-pad,e.point.y-pad],[e.point.x+pad,e.point.y+pad]];
   var ids=[];
@@ -554,21 +787,17 @@ document.getElementById("bm-topo").onclick=function(){setBase("topo");};
 document.getElementById("bm-imagery").onclick=function(){setBase("imagery");};
 
 /* ---------- sheets ---------- */
-function openSheet(id){
-  document.querySelectorAll(".sheet").forEach(function(s){s.classList.toggle("open",s.id===id);});
-  document.getElementById("btn-layers").classList.toggle("active",id==="sheet-layers");
-  document.getElementById("btn-offline").classList.toggle("active",id==="sheet-offline");
-  if(id==="sheet-offline"){usage();renderAreas();estimate();}
+function openSheet(){
+  document.getElementById("sheet-layers").classList.add("open");
+  document.getElementById("btn-layers").classList.add("active");
+  usage();renderAreas();estimate();wpRefresh();
 }
 function closeSheets(){
-  document.querySelectorAll(".sheet").forEach(function(s){s.classList.remove("open");});
+  document.getElementById("sheet-layers").classList.remove("open");
   document.getElementById("btn-layers").classList.remove("active");
-  document.getElementById("btn-offline").classList.remove("active");
 }
 document.getElementById("btn-layers").onclick=function(){
-  this.classList.contains("active")?closeSheets():openSheet("sheet-layers");};
-document.getElementById("btn-offline").onclick=function(){
-  this.classList.contains("active")?closeSheets():openSheet("sheet-offline");};
+  this.classList.contains("active")?closeSheets():openSheet();};
 document.querySelectorAll("[data-close]").forEach(function(b){b.onclick=closeSheets;});
 
 /* ---------- status ---------- */
