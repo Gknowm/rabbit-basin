@@ -45,6 +45,10 @@
   .sheet.open{transform:translateY(0);visibility:visible}
   @media (prefers-reduced-motion:reduce){.sheet{transition:none}}
   .sheet h2{margin:0;padding:22px 0 4px;font-size:17px;font-weight:600}
+  .sheet.dragging{transition:none}
+  #grip{position:sticky;top:0;z-index:3;display:flex;justify-content:center;
+    padding:10px 0 4px;margin:0 -18px;background:var(--basalt);cursor:grab}
+  #grip span{display:block;width:38px;height:4px;border-radius:2px;background:#4A4436}
   .sheet .lede{margin:0 0 10px;font-size:13px;line-height:1.5;color:var(--sage)}
   .close{position:absolute;right:14px;top:16px;width:34px;height:34px;border:none;border-radius:50%;
     background:var(--basalt2);color:var(--playa);font-size:17px;cursor:pointer}
@@ -175,7 +179,6 @@
 
 <div id="tools">
   <button class="tool" id="btn-locate" aria-label="Show my location">◎</button>
-  <button class="tool" id="btn-wp" aria-label="Drop a waypoint">✚</button>
   <button class="tool" id="compass" aria-label="Point map north">
     <svg class="needle" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
       <polygon points="10,2 13.4,11 10,9 6.6,11" fill="#D6503A"/>
@@ -185,10 +188,11 @@
   <button class="tool" id="btn-layers" aria-label="Menu">≡</button>
 </div>
 
-<div id="placing">Tap the map to drop a point</div>
+
 
 <!-- Layers -->
 <div class="sheet" id="sheet-layers">
+  <div id="grip" aria-hidden="true"><span></span></div>
   <button class="close" data-close="sheet-layers" aria-label="Close">✕</button>
   <h2>Layers</h2>
   <p class="lede">Everything here is saved on the phone. Turning a layer on costs nothing extra.</p>
@@ -220,7 +224,7 @@
   </div>
 
   <div class="layer">
-    <span class="swatch" style="background:#A8321E"></span>
+    <span class="swatch" style="background:linear-gradient(135deg,#2C6FB5 0 33%,#2E8B4A 33% 66%,#F2B01E 66%)"></span>
     <span class="txt"><span class="nm">Mining claims</span><span class="src" id="src-claims">BLM MLRS, not closed</span></span>
     <span class="sw"><input type="checkbox" id="ck-claims" checked><i></i></span>
   </div>
@@ -232,13 +236,13 @@
   </div>
 
   <div class="layer">
-    <span class="swatch" style="background:#E07A1F"></span>
+    <span class="swatch" style="background:#8C2A06"></span>
     <span class="txt"><span class="nm">My points</span><span class="src" id="src-wp">None yet</span></span>
     <span class="sw"><input type="checkbox" id="ck-wp" checked><i></i></span>
   </div>
 
   <h2 class="sec">My points</h2>
-  <p class="lede">Press and hold anywhere on the map to drop a point, or tap ✚ then tap. Saved on this phone only.</p>
+  <p class="lede">Press and hold anywhere on the map to drop a point. Saved on this phone only.</p>
   <div id="wplist"></div>
 
 <h2 class="sec">Offline maps</h2>
@@ -345,7 +349,7 @@ compass.onclick=function(){ map.easeTo({bearing:0,pitch:0,duration:400}); };
 /* ---------- waypoints ---------- */
 var WP_KEY="field-waypoints-v1";
 var placing=false;
-var placeBanner=document.getElementById("placing");
+var placeBanner={classList:{add:function(){},remove:function(){},toggle:function(){}}};
 
 function wpLoad(){try{return JSON.parse(localStorage.getItem(WP_KEY))||[];}catch(e){return [];}}
 function wpStore(a){try{localStorage.setItem(WP_KEY,JSON.stringify(a));}catch(e){}}
@@ -439,7 +443,6 @@ function dropAt(lngLat){
   var name=prompt("Name this point","Point "+(wpLoad().length+1));
   window.__wpJustDropped=Date.now();
   placing=false;
-  document.getElementById("btn-wp").classList.remove("active");
   placeBanner.classList.remove("on");
   if(name===null)return;
   var a=wpLoad();
@@ -448,12 +451,7 @@ function dropAt(lngLat){
   wpStore(a);wpRefresh();
 }
 
-document.getElementById("btn-wp").onclick=function(){
-  placing=!placing;
-  this.classList.toggle("active",placing);
-  placeBanner.classList.toggle("on",placing);
-  closeSheets();
-};
+
 
 document.getElementById("ck-wp").addEventListener("change",function(){
   ["wp-dot","wp-ring","wp-label"].forEach(function(id){
@@ -511,6 +509,7 @@ function claimPopup(p){
         (first(p,"CSE_NR")?" &middot; "+esc(first(p,"CSE_NR")):"")+"</p>";
   html+=rows([
     ["Status",first(p,"CSE_DISP")],
+    ["Also here",p._mix?"Both lode and placer claims cover this ground":null],
     ["Acres",acres?Number(acres).toFixed(1):null],
     ["Serial",first(p,"CSE_NR")],
     ["Legacy no.",first(p,"LEG_CSE_NR")]
@@ -577,12 +576,14 @@ var LAYERS=[
   {
     id:"claims", file:"data/claims.geojson", check:"ck-claims", src:"src-claims",
     order:3, defaultOn:true, opacity:0, hitFill:true,
-    line:function(){return ["match",["coalesce",["get","CSE_TYPE_NR"],""],
-      "384101","#A8321E","384103","#A8321E",
-      "384201","#C4661F","384203","#C4661F",
-      "384301","#8B4A6B","384303","#8B4A6B",
-      "384401","#6B4A8B","384403","#6B4A8B","#A8321E"];},
-    lineWidth:2.2,
+    line:function(){return ["case",
+      ["==",["get","_mix"],1], "#2E8B4A",
+      ["match",["coalesce",["get","CSE_TYPE_NR"],""],
+        "384201","#F2B01E","384203","#F2B01E",
+        "384101","#2C6FB5","384103","#2C6FB5",
+        "384301","#8B4A6B","384303","#8B4A6B",
+        "384401","#6B4A8B","384403","#6B4A8B","#8A7E6A"]];},
+    lineWidth:1.5,
     label:["coalesce",["get","CSE_NAME"],["get","CSE_NR"],""],
     popup:function(p){return claimPopup(p);}
   }
@@ -593,19 +594,21 @@ var loaded={};
 map.on("load",function(){
   map.addSource("wp",{type:"geojson",data:wpGeo()});
   map.addLayer({id:"wp-ring",type:"circle",source:"wp",
-    paint:{"circle-radius":9,"circle-color":"#E07A1F","circle-opacity":.25}});
+    paint:{"circle-radius":14,"circle-color":"#7A1F05","circle-opacity":.22}});
   map.addLayer({id:"wp-dot",type:"circle",source:"wp",
-    paint:{"circle-radius":5.5,"circle-color":"#E07A1F",
-           "circle-stroke-width":2,"circle-stroke-color":"#FFF7EC"}});
-  map.addLayer({id:"wp-label",type:"symbol",source:"wp",minzoom:12,
-    layout:{"text-field":["get","name"],"text-size":12,"text-offset":[0,1.1],
-            "text-anchor":"top","text-allow-overlap":false},
-    paint:{"text-color":"#3A2208","text-halo-color":"rgba(255,247,236,.95)","text-halo-width":1.8}});
+    paint:{"circle-radius":8,"circle-color":"#8C2A06",
+           "circle-stroke-width":3,"circle-stroke-color":"#FFFFFF"}});
+  map.addLayer({id:"wp-label",type:"symbol",source:"wp",minzoom:11,
+    layout:{"text-field":["get","name"],"text-size":13.5,"text-offset":[0,1.15],
+            "text-anchor":"top","text-allow-overlap":false,
+            "text-font":["Open Sans Bold","Arial Unicode MS Bold"]},
+    paint:{"text-color":"#4A1502","text-halo-color":"#FFFFFF","text-halo-width":2.2}});
   wpRefresh();
 
   LAYERS.forEach(function(L){
     fetch(L.file).then(function(r){return r.ok?r.json():null;}).then(function(g){
       if(!g||!g.features||!g.features.length){markMissing(L);return;}
+      if(L.id==="claims")markMixedClaims(g);
       build(L,g);
       loaded[L.id]=true;
       var ck=document.getElementById(L.check);
@@ -624,6 +627,48 @@ function markMissing(L){
   el.classList.add("miss");
   var ck=document.getElementById(L.check);
   ck.checked=false; ck.disabled=true;
+}
+
+/* A claim gets marked "_mix" when a claim of the other kind (lode vs placer)
+   covers substantially the same ground. Those draw green, so a block holding
+   both reads at a glance. Compared by bounding box, which is right for the
+   survey-grid rectangles BLM hands back. */
+function markMixedClaims(geoj){
+  var LODE={"384101":1,"384103":1}, PLACER={"384201":1,"384203":1};
+  var items=[];
+  (geoj.features||[]).forEach(function(f){
+    var t=f.properties&&f.properties.CSE_TYPE_NR;
+    var kind=LODE[t]?"L":(PLACER[t]?"P":null);
+    if(!kind||!f.geometry)return;
+    var b=[Infinity,Infinity,-Infinity,-Infinity];
+    (function walk(c){
+      if(typeof c[0]==="number"){
+        if(c[0]<b[0])b[0]=c[0]; if(c[1]<b[1])b[1]=c[1];
+        if(c[0]>b[2])b[2]=c[0]; if(c[1]>b[3])b[3]=c[1];
+      } else c.forEach(walk);
+    })(f.geometry.coordinates);
+    items.push({f:f,kind:kind,b:b});
+  });
+
+  function area(b){return Math.max(0,b[2]-b[0])*Math.max(0,b[3]-b[1]);}
+  function overlapFrac(a,c){
+    var w=Math.min(a[2],c[2])-Math.max(a[0],c[0]);
+    var h=Math.min(a[3],c[3])-Math.max(a[1],c[1]);
+    if(w<=0||h<=0)return 0;
+    var small=Math.min(area(a),area(c));
+    return small>0 ? (w*h)/small : 0;
+  }
+
+  for(var i=0;i<items.length;i++){
+    for(var j=i+1;j<items.length;j++){
+      if(items[i].kind===items[j].kind)continue;
+      if(overlapFrac(items[i].b,items[j].b)>0.35){
+        items[i].f.properties._mix=1;
+        items[j].f.properties._mix=1;
+      }
+    }
+  }
+  return geoj;
 }
 
 function build(L,geoj){
@@ -659,8 +704,7 @@ map.on("click",function(e){
   /* swallow the click that trails a long press */
   if(Date.now()-(window.__wpJustDropped||0)<700)return;
 
-  /* ✚ mode: next tap drops a point */
-  if(placing){ dropAt(e.lngLat); return; }
+
 
   /* an existing point takes priority over anything under it */
   var wpHit=map.queryRenderedFeatures(
@@ -799,6 +843,44 @@ function closeSheets(){
 document.getElementById("btn-layers").onclick=function(){
   this.classList.contains("active")?closeSheets():openSheet();};
 document.querySelectorAll("[data-close]").forEach(function(b){b.onclick=closeSheets;});
+
+/* Pull the panel down to dismiss it. Only engages when the panel is already
+   scrolled to the top, so normal scrolling through the layer list still works. */
+(function swipeToClose(){
+  var sheet=document.getElementById("sheet-layers");
+  var y0=null, dy=0, active=false;
+
+  sheet.addEventListener("touchstart",function(e){
+    if(e.touches.length!==1)return;
+    y0=e.touches[0].clientY; dy=0;
+    active=sheet.scrollTop<=0;
+  },{passive:true});
+
+  sheet.addEventListener("touchmove",function(e){
+    if(y0===null)return;
+    dy=e.touches[0].clientY-y0;
+
+    if(!active){
+      if(sheet.scrollTop<=0&&dy>0){ active=true; y0=e.touches[0].clientY; dy=0; }
+      else return;
+    }
+    if(dy<=0){ sheet.classList.remove("dragging"); sheet.style.transform=""; return; }
+
+    e.preventDefault();
+    sheet.classList.add("dragging");
+    sheet.style.transform="translateY("+dy+"px)";
+  },{passive:false});
+
+  function release(){
+    if(y0===null)return;
+    sheet.classList.remove("dragging");
+    sheet.style.transform="";
+    if(active&&dy>95)closeSheets();
+    y0=null; dy=0; active=false;
+  }
+  sheet.addEventListener("touchend",release);
+  sheet.addEventListener("touchcancel",release);
+})();
 
 /* ---------- status ---------- */
 var st=document.getElementById("statustext");
