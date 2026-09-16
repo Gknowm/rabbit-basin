@@ -75,6 +75,10 @@
   .row{display:flex;justify-content:space-between;align-items:baseline;padding:11px 0;
     border-top:1px solid var(--basalt2);font-size:14px}
   .row span:last-child{color:#fff;font-variant-numeric:tabular-nums}
+  input[type=text]{width:100%;margin-top:8px;padding:11px 12px;background:var(--basalt2);
+    color:var(--playa);border:1px solid var(--edge);border-radius:10px;font:inherit;font-size:15px;
+    -webkit-appearance:none}
+  input[type=text]::placeholder{color:#6A6454}
   select{width:100%;margin-top:8px;padding:11px 12px;background:var(--basalt2);color:var(--playa);
     border:1px solid var(--edge);border-radius:10px;font:inherit;font-size:15px}
   label.field{display:block;padding:14px 0 4px;font-size:14px}
@@ -86,12 +90,36 @@
   #bar.on{display:block}
   #fill{height:100%;width:0;background:var(--copperlit);transition:width .2s linear}
 
-  #legend{position:absolute;left:10px;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:4;
-    background:rgba(23,21,15,.92);color:var(--playa);border-radius:12px;padding:11px 13px;
-    font-size:12px;line-height:1.5;max-width:52vw;backdrop-filter:blur(6px);display:none}
+  #legend{padding:2px 0 16px 38px;display:none}
   #legend.on{display:block}
-  #legend div{display:flex;align-items:center;gap:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #legend b{width:12px;height:12px;border-radius:3px;flex:none}
+  #legend div{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--playa);
+    padding:3px 0;line-height:1.35}
+  #legend b{width:13px;height:13px;border-radius:3px;flex:none;border:1px solid rgba(255,255,255,.2)}
+  #legend em{color:var(--sage);font-style:normal;font-variant-numeric:tabular-nums;margin-left:auto;
+    padding-left:10px;font-size:11.5px}
+  #legend .hd{color:var(--sage);font-size:12px;padding:0 0 6px}
+
+  .area{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--basalt2)}
+  .area .txt{flex:1;min-width:0}
+  .area .nm{font-size:14.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .area .sub2{font-size:12px;color:var(--sage);display:block;margin-top:2px}
+  .area button{border:none;background:var(--basalt2);color:var(--sage);border-radius:9px;
+    padding:9px 13px;font:inherit;font-size:13px;cursor:pointer;flex:none}
+  .area button:hover{background:#3A3428;color:var(--playa)}
+  #areas .none{padding:14px 0;border-top:1px solid var(--basalt2);font-size:13px;color:var(--sage)}
+
+  .warnbox{margin-top:14px;padding:13px 14px;background:#2E2413;border:1px solid #5C4A22;
+    border-radius:11px;font-size:13px;line-height:1.5;color:#E8C88A;display:none}
+  .warnbox.on{display:block}
+
+  .nav{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    margin:-3px 0 10px;padding-bottom:9px;border-bottom:1px solid #DCD4C4}
+  .nav span{font-size:12px;color:#7A7364;font-variant-numeric:tabular-nums}
+  .nav div{display:flex;gap:6px}
+  .nav button{border:1px solid #CFC7B5;background:#E9E3D6;color:#3D3728;border-radius:7px;
+    width:30px;height:28px;font-size:14px;line-height:1;cursor:pointer;padding:0}
+  .nav button:disabled{opacity:.35;cursor:default}
+  .maplibregl-popup-content{max-height:56vh;overflow-y:auto}
 
   .maplibregl-popup-content{background:var(--paper);border-radius:10px;padding:14px 16px;
     font-family:var(--ui);font-size:13.5px;line-height:1.45;color:#221F18;box-shadow:0 6px 22px rgba(0,0,0,.3)}
@@ -116,8 +144,6 @@
   <button class="tool" id="btn-offline" aria-label="Offline maps">↓</button>
 </div>
 
-<div id="legend"></div>
-
 <!-- Layers -->
 <div class="sheet" id="sheet-layers">
   <button class="close" data-close="sheet-layers" aria-label="Close">✕</button>
@@ -138,6 +164,7 @@
     <label for="op-geology">Fill strength</label>
     <input type="range" id="op-geology" min="0" max="80" value="45">
   </div>
+  <div id="legend"></div>
 
   <div class="layer">
     <span class="swatch" style="background:linear-gradient(135deg,#F2D98C,#9DBE8A)"></span>
@@ -167,18 +194,31 @@
   <button class="close" data-close="sheet-offline" aria-label="Close">✕</button>
   <h2>Offline maps</h2>
   <p class="lede">Pan to the ground you want, then save it while you still have signal.</p>
-  <div class="row"><span>Saved map tiles</span><span id="cached">—</span></div>
-  <div class="row"><span>Storage used</span><span id="used">—</span></div>
+
+  <label class="field" for="areaname">Name this area
+    <input type="text" id="areaname" placeholder="Rabbit Basin north" maxlength="40" autocomplete="off">
+  </label>
+
   <label class="field" for="zoom">Detail level
     <select id="zoom">
-      <option value="14">Roads and basins — small</option>
-      <option value="15" selected>Two-tracks visible — medium</option>
-      <option value="16">Maximum detail — large</option>
+      <option value="14">Roads and basins</option>
+      <option value="15" selected>Two-tracks visible</option>
+      <option value="16">Maximum detail</option>
     </select>
   </label>
-  <button id="save">Save the area on screen</button>
+
+  <div class="row"><span>Tiles to download</span><span id="est-tiles">—</span></div>
+  <div class="row"><span>Rough download size</span><span id="est-size">—</span></div>
+
+  <div class="warnbox" id="warnbox"></div>
+
+  <button id="save">Save this area</button>
   <div id="bar"><div id="fill"></div></div>
-  <p id="note">Layer data is already saved. This button saves the topo and imagery pictures underneath it.</p>
+  <p id="note">Layer data is already on the phone. This saves the topo and imagery underneath it.</p>
+
+  <h2 style="padding-top:26px">Saved areas</h2>
+  <p class="lede">Storage used: <span id="used">—</span></p>
+  <div id="areas"></div>
 </div>
 
 <script src="vendor/maplibre-gl.js"></script>
@@ -232,7 +272,8 @@ var map=new maplibregl.Map({
   style:{version:8,
     sources:{base:{type:"raster",tiles:[BASE.topo.tiles],tileSize:256,maxzoom:16,attribution:BASE.topo.attr}},
     layers:[{id:"base",type:"raster",source:"base"}]},
-  center:START,zoom:START_Z,maxZoom:17
+  center:START,zoom:START_Z,maxZoom:17,
+  attributionControl:{compact:true}
 });
 map.addControl(new maplibregl.NavigationControl({showCompass:false}),"bottom-right");
 map.addControl(new maplibregl.ScaleControl({maxWidth:110,unit:"imperial"}),"bottom-left");
@@ -256,6 +297,48 @@ function rows(list){
   if(!r.length)return "";
   return "<dl>"+r.map(function(x){
     return "<dt>"+esc(x[0])+"</dt><dd>"+esc(String(x[1]))+"</dd>";}).join("")+"</dl>";
+}
+
+/* ---------- claim helpers ---------- */
+var CLAIM_TYPE={
+  "384101":"Lode claim","384103":"Lode claim",
+  "384201":"Placer claim","384203":"Placer claim",
+  "384301":"Mill site","384303":"Mill site",
+  "384401":"Tunnel site","384403":"Tunnel site"
+};
+
+/* BLM scores how well each claim could be tied to the survey grid.
+   Low numbers are good. These bands come from BLM's own grouping. */
+function qualityNote(q){
+  var n=parseInt(q,10);
+  if(isNaN(n))return null;
+  if(n<=3)  return "Tied directly to the survey grid. About as good as this data gets.";
+  if(n<=8)  return "Estimated from the survey grid. Treat the outline as approximate.";
+  if(n<=10) return "Located only to the section. The claim is somewhere in this square mile.";
+  if(n<=12) return "No survey match. This outline is a placeholder.";
+  if(n===15)return "Partly mapped. Some of this claim has no location data.";
+  if(n<=22) return "No survey match. This outline is a placeholder.";
+  if(n===25)return "Mapped only to the county.";
+  if(n===100)return "Hand-corrected by BLM staff.";
+  return null;
+}
+
+function claimPopup(p){
+  var type=CLAIM_TYPE[first(p,"CSE_TYPE_NR")]||first(p,"CSE_TYPE_NR")||"Mining claim";
+  var acres=first(p,"RCRD_ACRS");
+  var note=qualityNote(first(p,"QLTY"));
+  var html="<h3>"+esc(first(p,"CSE_NAME")||"Unnamed claim")+"</h3>";
+  html+='<p class="kicker">'+esc(type)+
+        (first(p,"CSE_NR")?" &middot; "+esc(first(p,"CSE_NR")):"")+"</p>";
+  html+=rows([
+    ["Status",first(p,"CSE_DISP")],
+    ["Acres",acres?Number(acres).toFixed(1):null],
+    ["Serial",first(p,"CSE_NR")],
+    ["Legacy no.",first(p,"LEG_CSE_NR")]
+  ]);
+  html+='<p class="warn">'+(note?esc(note)+" ":"")+
+    "BLM records claims only to the affected quarter sections. The staked corners are in the Notice of Location at the county and the BLM state office.</p>";
+  return html;
 }
 
 /* ---------- layer definitions ---------- */
@@ -314,32 +397,15 @@ var LAYERS=[
   },
   {
     id:"claims", file:"data/claims.geojson", check:"ck-claims", src:"src-claims",
-    order:3, defaultOn:true, opacity:0.34,
-    fill:function(){return ["match",["coalesce",["get","CSE_TYPE_CD"],""],
-      "LODE","#A8321E","PLACER","#C4661F","MILLSITE","#8B4A6B","TUNNEL","#6B4A8B","#A8321E"];},
-    line:"#7E210F", lineWidth:2,
+    order:3, defaultOn:true, opacity:0, hitFill:true,
+    line:function(){return ["match",["coalesce",["get","CSE_TYPE_NR"],""],
+      "384101","#A8321E","384103","#A8321E",
+      "384201","#C4661F","384203","#C4661F",
+      "384301","#8B4A6B","384303","#8B4A6B",
+      "384401","#6B4A8B","384403","#6B4A8B","#A8321E"];},
+    lineWidth:2.2,
     label:["coalesce",["get","CSE_NAME"],["get","CSE_NR"],""],
-    popup:function(p){
-      var q=Number(first(p,"DATA_QLTY_SCR","DATA_QUALITY_SCORE"));
-      var conf="";
-      if(!isNaN(q)&&first(p,"DATA_QLTY_SCR","DATA_QUALITY_SCORE")!==null){
-        if(q<=3) conf="Matched directly to the survey grid. This outline is about as good as BLM data gets.";
-        else if(q<=8) conf="Estimated from the survey grid. Treat the outline as approximate.";
-        else if(q<=10) conf="Located only to the section. The claim is somewhere inside this square mile.";
-        else if(q===15) conf="Partly mapped. Some of this claim has no location data at all.";
-        else if(q===100) conf="Hand-corrected by BLM staff.";
-        else conf="Weakly located. Do not rely on this outline.";
-      }
-      return "<h3>"+esc(first(p,"CSE_NAME")||"Mining claim")+"</h3>"+
-        '<p class="kicker">'+esc(first(p,"CSE_NR","SERIAL_NR")||"")+"</p>"+
-        rows([["Type",first(p,"CSE_TYPE_CD","CSE_TYPE")],
-              ["Status",first(p,"CSE_DISP_CD","CSE_DISP")],
-              ["Claimant",first(p,"CLAIMANT_NAME","CSE_CLMNT")],
-              ["Located",first(p,"LOCATION_DT","CSE_LOC_DT")],
-              ["Township",first(p,"TWP_NR")]])+
-        '<p class="warn">'+(conf?esc(conf)+" ":"")+
-        "BLM only records claims down to the affected quarter sections. The staked corners are in the Notice of Location in the case file.</p>";
-    }
+    popup:function(p){return claimPopup(p);}
   }
 ];
 
@@ -356,9 +422,9 @@ map.on("load",function(){
       setVisible(L,ck.checked);
       document.getElementById(L.src).textContent=
         g.features.length.toLocaleString()+" features saved";
+      if(L.id==="geology") buildLegend(g);
     }).catch(function(){markMissing(L);});
   });
-  buildLegend();
 });
 
 function markMissing(L){
@@ -376,25 +442,74 @@ function build(L,geoj){
   if(L.opacity>0&&L.fill){
     map.addLayer({id:L.id+"-f",type:"fill",source:L.id,layout:{visibility:vis},
       paint:{"fill-color":L.fill(),"fill-opacity":L.opacity}});
+  } else if(L.hitFill){
+    /* invisible fill so the whole claim block is tappable, not just its edge */
+    map.addLayer({id:L.id+"-f",type:"fill",source:L.id,layout:{visibility:vis},
+      paint:{"fill-color":"#000","fill-opacity":0.01}});
   }
+
   map.addLayer({id:L.id+"-l",type:"line",source:L.id,layout:{visibility:vis},
-    paint:Object.assign({"line-color":L.line,"line-width":L.lineWidth||1},
-      L.dash?{"line-dasharray":L.dash}:{})});
+    paint:Object.assign({
+      "line-color":typeof L.line==="function"?L.line():L.line,
+      "line-width":L.lineWidth||1
+    },L.dash?{"line-dasharray":L.dash}:{})});
 
   if(L.label){
     map.addLayer({id:L.id+"-t",type:"symbol",source:L.id,minzoom:13,
       layout:{visibility:vis,"text-field":L.label,"text-size":12,"text-allow-overlap":false},
       paint:{"text-color":"#2C1A12","text-halo-color":"rgba(242,237,226,.92)","text-halo-width":1.6}});
   }
-
-  var hit=(L.opacity>0&&L.fill)?L.id+"-f":L.id+"-l";
-  map.on("click",hit,function(e){
-    if(e.originalEvent && e.originalEvent._claimed) return;
-    if(L.id==="claims" && e.originalEvent) e.originalEvent._claimed=true;
-    new maplibregl.Popup({maxWidth:"300px"})
-      .setLngLat(e.lngLat).setHTML(L.popup(e.features[0].properties)).addTo(map);
-  });
 }
+
+/* One tap, one popup. Collects everything under the finger across all
+   visible layers, claims first, and lets you page through the stack. */
+var openPopup=null;
+map.on("click",function(e){
+  var pad=6;
+  var box=[[e.point.x-pad,e.point.y-pad],[e.point.x+pad,e.point.y+pad]];
+  var ids=[];
+  LAYERS.forEach(function(L){
+    if(!loaded[L.id])return;
+    if(!document.getElementById(L.check).checked)return;
+    if(map.getLayer(L.id+"-f"))ids.push(L.id+"-f");
+    else if(map.getLayer(L.id+"-l"))ids.push(L.id+"-l");
+  });
+  if(!ids.length)return;
+
+  var hits=map.queryRenderedFeatures(box,{layers:ids});
+  if(!hits.length)return;
+
+  var order={claims:0,geology:1,sma:2,plss:3};
+  var items=[];
+  var seen={};
+  hits.forEach(function(f){
+    var lid=f.layer.id.replace(/-(f|l)$/,"");
+    var key=lid+":"+(f.properties.OBJECTID||f.properties.ID||JSON.stringify(f.properties).slice(0,80));
+    if(seen[key])return; seen[key]=true;
+    items.push({lid:lid,props:f.properties});
+  });
+  items.sort(function(a,b){return (order[a.lid]|0)-(order[b.lid]|0);});
+
+  var i=0;
+  function render(){
+    var it=items[i];
+    var L=LAYERS.filter(function(x){return x.id===it.lid;})[0];
+    var head="";
+    if(items.length>1){
+      head='<div class="nav"><span>'+(i+1)+" of "+items.length+" here</span>"+
+        '<div><button id="pv"'+(i===0?" disabled":"")+' aria-label="Previous">&#8249;</button>'+
+        '<button id="nx"'+(i===items.length-1?" disabled":"")+' aria-label="Next">&#8250;</button></div></div>';
+    }
+    openPopup.setHTML(head+L.popup(it.props));
+    var pv=document.getElementById("pv"),nx=document.getElementById("nx");
+    if(pv)pv.onclick=function(){if(i>0){i--;render();}};
+    if(nx)nx.onclick=function(){if(i<items.length-1){i++;render();}};
+  }
+
+  if(openPopup)openPopup.remove();
+  openPopup=new maplibregl.Popup({maxWidth:"300px"}).setLngLat(e.lngLat).addTo(map);
+  render();
+});
 
 function setVisible(L,on){
   ["-f","-l","-t"].forEach(function(s){
@@ -414,13 +529,19 @@ LAYERS.forEach(function(L){
   }
 });
 
-function buildLegend(){
-  var pick=["Quaternary Surficial Deposits","Quaternary Volcanics",
-            "High Lava Plains Volcanic Province","Northern Nevada Volcanics",
-            "Neogene volcanic rocks","Neogene sedimentary rocks"];
-  document.getElementById("legend").innerHTML=pick.map(function(k){
-    return '<div><b style="background:'+GEO_COLORS[k]+'"></b>'+esc(k)+"</div>";
+function buildLegend(geoj){
+  var counts={};
+  (geoj.features||[]).forEach(function(f){
+    var k=(f.properties&&f.properties.TERRANE_GR)||"Other";
+    counts[k]=(counts[k]||0)+1;
+  });
+  var keys=Object.keys(counts).sort(function(a,b){return counts[b]-counts[a];});
+  var el=document.getElementById("legend");
+  el.innerHTML='<div class="hd">Units in this area</div>'+keys.map(function(k){
+    return '<div><b style="background:'+(GEO_COLORS[k]||GEO_FALLBACK)+'"></b>'+
+      esc(k)+"<em>"+counts[k]+"</em></div>";
   }).join("");
+  el.classList.toggle("on",document.getElementById("ck-geology").checked);
 }
 
 /* ---------- basemap ---------- */
@@ -437,7 +558,7 @@ function openSheet(id){
   document.querySelectorAll(".sheet").forEach(function(s){s.classList.toggle("open",s.id===id);});
   document.getElementById("btn-layers").classList.toggle("active",id==="sheet-layers");
   document.getElementById("btn-offline").classList.toggle("active",id==="sheet-offline");
-  if(id==="sheet-offline") usage();
+  if(id==="sheet-offline"){usage();renderAreas();estimate();}
 }
 function closeSheets(){
   document.querySelectorAll(".sheet").forEach(function(s){s.classList.remove("open");});
@@ -460,30 +581,146 @@ addEventListener("online",showStatus);addEventListener("offline",showStatus);sho
 
 /* ---------- offline tiles ---------- */
 var saveBtn=document.getElementById("save"),bar=document.getElementById("bar"),
-    fill=document.getElementById("fill"),note=document.getElementById("note");
+    fill=document.getElementById("fill"),note=document.getElementById("note"),
+    warnbox=document.getElementById("warnbox"),nameBox=document.getElementById("areaname"),
+    zoomSel=document.getElementById("zoom");
+
+var AREAS_KEY="field-areas-v1";
+var BYTES_PER_TILE=19000;   /* USGS topo + imagery average, measured rough */
 
 function x2(l,z){return Math.floor((l+180)/360*Math.pow(2,z));}
 function y2(l,z){var r=l*Math.PI/180;
   return Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*Math.pow(2,z));}
 
-saveBtn.onclick=function(){
-  if(!navigator.onLine){note.textContent="No connection. Saving needs signal.";return;}
-  var mz=parseInt(document.getElementById("zoom").value,10),urls=[];
-  for(var z=11;z<=mz;z++){
-    var b=map.getBounds();
-    for(var x=x2(b.getWest(),z);x<=x2(b.getEast(),z);x++)
-      for(var y=y2(b.getNorth(),z);y<=y2(b.getSouth(),z);y++){
-        urls.push(BASE.topo.tiles.replace("{z}",z).replace("{x}",x).replace("{y}",y));
-        urls.push(BASE.imagery.tiles.replace("{z}",z).replace("{x}",x).replace("{y}",y));
+function urlsFor(bbox,maxZ){
+  var out=[];
+  for(var z=11;z<=maxZ;z++){
+    for(var x=x2(bbox[0],z);x<=x2(bbox[2],z);x++)
+      for(var y=y2(bbox[3],z);y<=y2(bbox[1],z);y++){
+        out.push(BASE.topo.tiles.replace("{z}",z).replace("{x}",x).replace("{y}",y));
+        out.push(BASE.imagery.tiles.replace("{z}",z).replace("{x}",x).replace("{y}",y));
       }
   }
+  return out;
+}
+
+function currentBbox(){
+  var b=map.getBounds();
+  return [b.getWest(),b.getSouth(),b.getEast(),b.getNorth()];
+}
+
+function mb(n){return n<1?"under 1 MB":n<1024?n.toFixed(0)+" MB":(n/1024).toFixed(1)+" GB";}
+
+function estimate(){
+  var n=urlsFor(currentBbox(),parseInt(zoomSel.value,10)).length;
+  var size=n*BYTES_PER_TILE/1048576;
+  document.getElementById("est-tiles").textContent=n.toLocaleString();
+  document.getElementById("est-size").textContent=mb(size);
+
+  var msg="";
+  if(size>400) msg="That is a very large download and it may not finish. Zoom in, or drop to a lower detail level.";
+  else if(size>150) msg="Large download. On cellular data this will cost you real money — do it on wifi.";
+  else if(size>60) msg="Moderate download. Best done on wifi.";
+  warnbox.textContent=msg;
+  warnbox.classList.toggle("on",!!msg);
+  saveBtn.disabled=size>1200;
+  return {n:n,size:size};
+}
+map.on("moveend",estimate);
+zoomSel.addEventListener("change",estimate);
+map.on("load",estimate);
+
+/* ---- saved areas ---- */
+function loadAreas(){
+  try{return JSON.parse(localStorage.getItem(AREAS_KEY))||[];}catch(e){return [];}
+}
+function storeAreas(a){
+  try{localStorage.setItem(AREAS_KEY,JSON.stringify(a));}catch(e){}
+}
+
+function describeBbox(b){
+  var midLat=(b[1]+b[3])/2;
+  var wide=(b[2]-b[0])*69*Math.cos(midLat*Math.PI/180);
+  var tall=(b[3]-b[1])*69;
+  return wide.toFixed(0)+" x "+tall.toFixed(0)+" miles";
+}
+
+function autoName(b){
+  var lat=((b[1]+b[3])/2), lon=((b[0]+b[2])/2);
+  return Math.abs(lat).toFixed(2)+(lat<0?"S":"N")+" "+
+         Math.abs(lon).toFixed(2)+(lon<0?"W":"E");
+}
+
+function renderAreas(){
+  var list=loadAreas(), el=document.getElementById("areas");
+  if(!list.length){
+    el.innerHTML='<div class="none">Nothing saved yet. Pan to an area above and save it.</div>';
+    return;
+  }
+  el.innerHTML=list.map(function(a,i){
+    return '<div class="area"><span class="txt">'+
+      '<span class="nm">'+esc(a.name)+"</span>"+
+      '<span class="sub2">'+describeBbox(a.bbox)+" &middot; "+mb(a.tiles*BYTES_PER_TILE/1048576)+
+      " &middot; saved "+new Date(a.date).toLocaleDateString()+"</span></span>"+
+      '<button data-go="'+i+'">Go</button>'+
+      '<button data-del="'+i+'">Delete</button></div>';
+  }).join("");
+
+  el.querySelectorAll("[data-go]").forEach(function(b){
+    b.onclick=function(){
+      var a=loadAreas()[+b.dataset.go];
+      map.fitBounds([[a.bbox[0],a.bbox[1]],[a.bbox[2],a.bbox[3]]],{padding:20});
+      closeSheets();
+    };
+  });
+  el.querySelectorAll("[data-del]").forEach(function(b){
+    b.onclick=function(){ removeArea(+b.dataset.del,b); };
+  });
+}
+
+function removeArea(idx,btn){
+  var list=loadAreas(), gone=list[idx];
+  if(!gone)return;
+  if(btn.dataset.sure!=="1"){
+    btn.dataset.sure="1"; btn.textContent="Sure?";
+    setTimeout(function(){ if(btn.dataset.sure==="1"){btn.dataset.sure="";btn.textContent="Delete";} },4000);
+    return;
+  }
+  btn.textContent="…";
+
+  /* Keep any tile another saved area still needs. */
+  var keep={};
+  list.forEach(function(a,i){
+    if(i===idx)return;
+    urlsFor(a.bbox,a.maxZ).forEach(function(u){keep[u]=1;});
+  });
+  var drop=urlsFor(gone.bbox,gone.maxZ).filter(function(u){return !keep[u];});
+
+  caches.open(TILE_CACHE).then(function(c){
+    return Promise.all(drop.map(function(u){return c.delete(u);}));
+  }).then(function(){
+    list.splice(idx,1); storeAreas(list); renderAreas(); usage();
+  });
+}
+
+/* ---- saving ---- */
+saveBtn.onclick=function(){
+  if(!navigator.onLine){note.textContent="No connection. Saving needs signal.";return;}
+  var bbox=currentBbox(), maxZ=parseInt(zoomSel.value,10);
+  var urls=urlsFor(bbox,maxZ);
+  var name=(nameBox.value||"").trim()||autoName(bbox);
+
   saveBtn.disabled=true;bar.classList.add("on");
-  note.textContent="Saving "+urls.length.toLocaleString()+" tiles. Keep this screen open.";
+  note.textContent='Saving "'+name+'". Keep this screen open.';
+
   grab(urls,function(d,t){fill.style.width=(d/t*100)+"%";}).then(function(r){
     bar.classList.remove("on");fill.style.width="0";saveBtn.disabled=false;
-    note.textContent=r.failed?("Saved "+r.saved.toLocaleString()+" tiles. "+r.failed.toLocaleString()+
-      " failed — save again to fill the gaps."):"Saved. This area now works in airplane mode.";
-    usage();
+    var list=loadAreas();
+    list.unshift({name:name,bbox:bbox,maxZ:maxZ,tiles:r.saved,date:Date.now()});
+    storeAreas(list); nameBox.value=""; renderAreas(); usage();
+    note.textContent=r.failed
+      ? 'Saved "'+name+'" with '+r.failed.toLocaleString()+" tiles missing. Save again to fill the gaps."
+      : 'Saved "'+name+'". This area now works in airplane mode.';
   });
 };
 
@@ -507,16 +744,12 @@ function grab(urls,prog){
 }
 
 function usage(){
-  caches.open(TILE_CACHE).then(function(c){return c.keys();}).then(function(k){
-    document.getElementById("cached").textContent=k.length?k.length.toLocaleString()+" tiles":"Nothing yet";
-  }).catch(function(){});
   if(navigator.storage&&navigator.storage.estimate)
     navigator.storage.estimate().then(function(e){
-      var mb=(e.usage||0)/1048576;
-      document.getElementById("used").textContent=mb<1?"under 1 MB":mb.toFixed(0)+" MB";
+      document.getElementById("used").textContent=mb((e.usage||0)/1048576);
     });
 }
-usage();
+usage(); renderAreas();
 
 if("serviceWorker" in navigator)
   addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});
