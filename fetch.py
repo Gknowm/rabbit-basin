@@ -81,6 +81,20 @@ SOURCES = [
         "page": 1000,
     },
     {
+        "name": "Mineral occurrences",
+        "out": "milo.geojson",
+        "who": "Oregon DOGAMI, Mineral Information Layer (MILO)",
+        "url": "https://gis.dogami.oregon.gov/arcgis/rest/services/Public/MILOv3/MapServer/1/query",
+        "where": "1=1",
+        "page": 1000,
+        "classify": True,
+        "keep": ["SiteName","Synonym","Commodity","CommoditiesProduced","Type",
+                 "OperatingStatus","DepositType","OreMaterial","WorkingsType",
+                 "WorkingsDescription","MiningDistrict","YearOfDiscovery",
+                 "ElevationFeet","Owner","ShortReference1","ShortReference2",
+                 "ShortReference3","MILO_ID"],
+    },
+    {
         "name": "Survey grid",
         "out": "plss.geojson",
         "who": "BLM PLSS CadNSDI, sections and aliquot parts",
@@ -122,6 +136,52 @@ def query_url(src, offset, count, geometry_only=True):
 
 
 PRECISION = 6   # ~4 inches on the ground; source gives ~15 decimals
+
+# ----------------------------------------------------------------------
+# MILO covers everything from gravel pits to gold mines. Most of it is of
+# no interest to a rockhound, so occurrences are sorted into categories
+# here and anything unclassified is thrown away before it ever reaches
+# the phone. Edit these lists to change what shows up.
+#
+# Order matters: the first match wins, so gold beats silver beats the
+# generic metals, and a site listing several commodities lands in the
+# most interesting one.
+# ----------------------------------------------------------------------
+COMMODITY_RULES = [
+    ("gold",      ["gold", "placer gold", "au "]),
+    ("silver",    ["silver", "argent"]),
+    ("sunstone",  ["sunstone", "sun stone", "labradorite", "feldspar gem"]),
+    ("opal",      ["opal"]),
+    ("agate",     ["agate", "jasper", "chalcedony", "carnelian", "bloodstone",
+                   "moss agate", "plume agate"]),
+    ("wood",      ["petrified wood", "fossil wood", "silicified wood", "petrified"]),
+    ("thunderegg",["thunderegg", "thunder egg", "geode", "amethyst", "quartz crystal",
+                   "rock crystal", "crystal"]),
+    ("obsidian",  ["obsidian"]),
+    ("gem_other", ["gem", "jade", "nephrite", "garnet", "rhodonite", "serpentine",
+                   "turquoise", "variscite", "onyx", "beryl", "topaz", "sapphire",
+                   "ruby", "peridot", "olivine gem", "zeolite gem"]),
+    ("metal",     ["copper", "lead", "zinc", "mercury", "cinnabar", "chromite",
+                   "chromium", "nickel", "cobalt", "manganese", "antimony",
+                   "tungsten", "uranium", "platinum", "molybdenum", "tin",
+                   "titanium", "arsenic", "iron", "bismuth", "vanadium",
+                   "rare earth", "thorium", "beryllium", "lithium"]),
+]
+
+GEM_CATS = {"sunstone", "opal", "agate", "wood", "thunderegg", "obsidian", "gem_other"}
+
+
+def classify(props):
+    """Return (category, group) or (None, None) to drop the record."""
+    text = " ".join(str(props.get(f) or "") for f in
+                    ("Commodity", "CommoditiesProduced", "OreMaterial", "SiteName")).lower()
+    if not text.strip():
+        return None, None
+    for cat, words in COMMODITY_RULES:
+        for w in words:
+            if w in text:
+                return cat, ("gem" if cat in GEM_CATS else "metal")
+    return None, None
 
 
 def trim_coords(node):
@@ -177,6 +237,18 @@ def fetch_layer(src):
     sys.stdout.write("\r" + " " * 40 + "\r")
     keep = set(src.get("keep") or [])
     features = [slim(f, keep) for f in features]
+
+    if src.get("classify"):
+        kept = []
+        for f in features:
+            cat, grp = classify(f["properties"])
+            if not cat:
+                continue
+            f["properties"]["_cat"] = cat
+            f["properties"]["_grp"] = grp
+            kept.append(f)
+        features = kept
+
     return {"type": "FeatureCollection", "features": features}
 
 

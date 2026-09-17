@@ -11,7 +11,7 @@
    That is what tells phones to pick up the new copy.
 ------------------------------------------------------------------ */
 
-const SHELL_VERSION = 6;
+const SHELL_VERSION = 8;
 const SHELL_CACHE = "field-shell-v" + SHELL_VERSION;
 const TILE_CACHE  = "field-tiles-v1";   // must match TILE_CACHE in index.html
 
@@ -27,7 +27,8 @@ const SHELL_FILES = [
   "data/geology.geojson",
   "data/claims.geojson",
   "data/ownership.geojson",
-  "data/plss.geojson"
+  "data/plss.geojson",
+  "data/milo.geojson"
 ];
 
 // Requests to these hosts are map tiles.

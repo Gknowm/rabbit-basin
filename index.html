@@ -160,6 +160,8 @@
   #wplist .none{padding:14px 0;border-top:1px solid var(--basalt2);font-size:13px;color:var(--sage)}
 
   .sec{padding-top:26px}
+  .kk{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--playa);padding:3px 0}
+  .kk b{width:11px;height:11px;border-radius:50%;flex:none;border:1.5px solid #fff}
 
   .maplibregl-popup-content{background:var(--paper);border-radius:10px;padding:14px 16px;
     font-family:var(--ui);font-size:13.5px;line-height:1.45;color:#221F18;box-shadow:0 6px 22px rgba(0,0,0,.3)}
@@ -241,6 +243,32 @@
     <span class="swatch" style="background:repeating-linear-gradient(45deg,#6E5A3A 0 3px,transparent 3px 6px)"></span>
     <span class="txt"><span class="nm">Survey grid</span><span class="src" id="src-plss">BLM PLSS sections and quarters</span></span>
     <span class="sw"><input type="checkbox" id="ck-plss"><i></i></span>
+  </div>
+
+  <div class="layer">
+    <span class="swatch" style="background:linear-gradient(135deg,#E8A200 0 50%,#98A6B4 50%)"></span>
+    <span class="txt"><span class="nm">Metals</span><span class="src" id="src-milometal">DOGAMI MILO</span></span>
+    <span class="sw"><input type="checkbox" id="ck-milometal" checked><i></i></span>
+  </div>
+  <div class="sub" style="padding-bottom:12px">
+    <div class="kk"><b style="background:#E8A200"></b>Gold</div>
+    <div class="kk"><b style="background:#98A6B4"></b>Silver</div>
+    <div class="kk"><b style="background:#7C5CA8"></b>Other metal</div>
+  </div>
+
+  <div class="layer">
+    <span class="swatch" style="background:linear-gradient(135deg,#C1520F 0 33%,#2E8B8B 33% 66%,#D4569B 66%)"></span>
+    <span class="txt"><span class="nm">Gems and rockhounding</span><span class="src" id="src-milogem">DOGAMI MILO</span></span>
+    <span class="sw"><input type="checkbox" id="ck-milogem" checked><i></i></span>
+  </div>
+  <div class="sub" style="padding-bottom:14px">
+    <div class="kk"><b style="background:#C1520F"></b>Sunstone</div>
+    <div class="kk"><b style="background:#2E8B8B"></b>Agate / jasper</div>
+    <div class="kk"><b style="background:#D4569B"></b>Opal</div>
+    <div class="kk"><b style="background:#6B4423"></b>Petrified wood</div>
+    <div class="kk"><b style="background:#4A6FC4"></b>Thunderegg / crystal</div>
+    <div class="kk"><b style="background:#22222A"></b>Obsidian</div>
+    <div class="kk"><b style="background:#8A9A3B"></b>Other gem</div>
   </div>
 
   <div class="layer">
@@ -401,9 +429,10 @@ function startLocating(){
   },function(err){
     btn.classList.remove("active");
     if(meWatch!==null){navigator.geolocation.clearWatch(meWatch);meWatch=null;}
-    if(err.code===1) toast("Location is blocked. Turn it on in Settings > Privacy > Location Services, then in Safari.");
-    else if(err.code===2) toast("No position yet. Outdoors with a clear view of the sky works best.");
-    else toast("Location timed out. Try again.");
+    var why=err&&err.message?" ("+err.message+")":"";
+    if(err.code===1) toast("Location permission denied"+why+". If you granted it in Safari, the home-screen app needs its own grant: delete the icon, allow in Safari, then re-add.");
+    else if(err.code===2) toast("Position unavailable"+why+". Outdoors with a clear view of the sky works best.");
+    else toast("Location timed out"+why+".");
   },{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
 }
 
@@ -595,12 +624,69 @@ function claimPopup(p){
   html+=rows([
     ["Status",first(p,"CSE_DISP")],
     ["Also here",p._mix?"Both lode and placer claims cover this ground":null],
+    ["Occurrences in this block",first(p,"_occ")],
     ["Acres",acres?Number(acres).toFixed(1):null],
     ["Serial",first(p,"CSE_NR")],
     ["Legacy no.",first(p,"LEG_CSE_NR")]
   ]);
   html+='<p class="warn">'+(note?esc(note)+" ":"")+
     "BLM records claims only to the affected quarter sections. The staked corners are in the Notice of Location at the county and the BLM state office.</p>";
+  if(p._occ)
+    html+='<p class="warn">Occurrences listed above are what DOGAMI has recorded on this ground. '+
+      "They are not what the claim is filed for &mdash; BLM's claim data carries no commodity.</p>";
+  return html;
+}
+
+/* DOGAMI groups occurrences by Type. Their own legend colours are pale
+   pastels meant for a white background, so these are darkened versions that
+   stay legible on topo and imagery. */
+var CAT_COLOR={
+  gold:"#E8A200", silver:"#98A6B4", metal:"#7C5CA8",
+  sunstone:"#C1520F", opal:"#D4569B", agate:"#2E8B8B",
+  wood:"#6B4423", thunderegg:"#4A6FC4", obsidian:"#22222A", gem_other:"#8A9A3B"
+};
+var CAT_LABEL={
+  gold:"Gold", silver:"Silver", metal:"Other metal",
+  sunstone:"Sunstone", opal:"Opal", agate:"Agate / jasper",
+  wood:"Petrified wood", thunderegg:"Thunderegg / crystal",
+  obsidian:"Obsidian", gem_other:"Other gem"
+};
+var MILO_COLORS=(function(){
+  var e=["match",["coalesce",["get","_cat"],""]];
+  Object.keys(CAT_COLOR).forEach(function(k){e.push(k,CAT_COLOR[k]);});
+  e.push("#7A6A55"); return e;
+})();
+/* gold and silver get drawn a touch larger than the rest */
+var MILO_RADIUS=["interpolate",["linear"],["zoom"],
+  9,["case",["in",["get","_cat"],["literal",["gold","silver"]]],4,2.8],
+  13,["case",["in",["get","_cat"],["literal",["gold","silver"]]],7,5],
+  16,["case",["in",["get","_cat"],["literal",["gold","silver"]]],10,7]];
+
+function miloPopup(p){
+  var name=first(p,"SiteName")||"Mineral occurrence";
+  var com=first(p,"Commodity");
+  var html="<h3>"+esc(name)+"</h3>";
+  var kick=[CAT_LABEL[first(p,"_cat")]||first(p,"Type"),
+            first(p,"OperatingStatus")].filter(Boolean).join(" &middot; ");
+  if(kick)html+='<p class="kicker">'+kick+"</p>";
+  html+=rows([
+    ["Commodity",com],
+    ["Produced",first(p,"CommoditiesProduced")],
+    ["Deposit type",first(p,"DepositType")],
+    ["Ore material",first(p,"OreMaterial")],
+    ["Workings",first(p,"WorkingsType")],
+    ["District",first(p,"MiningDistrict")],
+    ["Discovered",first(p,"YearOfDiscovery")],
+    ["Elevation",first(p,"ElevationFeet")?first(p,"ElevationFeet")+" ft":null],
+    ["Also called",first(p,"Synonym")]
+  ]);
+  var wd=first(p,"WorkingsDescription");
+  if(wd)html+='<p class="warn" style="color:#3D3728;border-top-color:#DCD4C4">'+esc(wd)+"</p>";
+  var refs=[first(p,"ShortReference1"),first(p,"ShortReference2"),first(p,"ShortReference3")]
+    .filter(Boolean);
+  if(refs.length)html+='<p class="kicker" style="margin:9px 0 0">'+esc(refs.join("; "))+"</p>";
+  html+='<p class="warn">A recorded occurrence, not a claim and not permission to collect. '+
+        "Much of MILO comes from historic reports.</p>";
   return html;
 }
 
@@ -659,6 +745,16 @@ var LAYERS=[
     }
   },
   {
+    id:"milometal", file:"data/milo.geojson", check:"ck-milometal", src:"src-milometal",
+    order:4, defaultOn:true, point:true, filter:["==",["get","_grp"],"metal"],
+    popup:function(p){return miloPopup(p);}
+  },
+  {
+    id:"milogem", file:"data/milo.geojson", check:"ck-milogem", src:"src-milogem",
+    order:5, defaultOn:true, point:true, filter:["==",["get","_grp"],"gem"],
+    popup:function(p){return miloPopup(p);}
+  },
+  {
     id:"claims", file:"data/claims.geojson", check:"ck-claims", src:"src-claims",
     order:3, defaultOn:true, opacity:0, hitFill:true,
     line:function(){return ["case",
@@ -675,7 +771,7 @@ var LAYERS=[
 ];
 
 /* ---------- load ---------- */
-var loaded={};
+var loaded={}, RAW={};
 map.on("load",function(){
   map.addSource("wp",{type:"geojson",data:wpGeo()});
   map.addLayer({id:"wp-ring",type:"circle",source:"wp",
@@ -696,11 +792,18 @@ map.on("load",function(){
       if(L.id==="claims")markMixedClaims(g);
       build(L,g);
       loaded[L.id]=true;
+      RAW[L.id]=g;
+      if(L.id==="milometal")RAW.milo=g;
+      if(RAW.claims&&RAW.milo)crossReference(RAW.claims,RAW.milo);
       var ck=document.getElementById(L.check);
       ck.disabled=false;
       setVisible(L,ck.checked);
-      document.getElementById(L.src).textContent=
-        g.features.length.toLocaleString()+" features saved";
+      var n=g.features.length;
+      if(L.filter&&L.filter[1]&&L.filter[1][1]==="_grp"){
+        var want=L.filter[2];
+        n=g.features.filter(function(f){return f.properties&&f.properties._grp===want;}).length;
+      }
+      document.getElementById(L.src).textContent=n.toLocaleString()+" recorded";
       if(L.id==="geology") buildLegend(g);
     }).catch(function(){markMissing(L);});
   });
@@ -718,6 +821,56 @@ function markMissing(L){
    covers substantially the same ground. Those draw green, so a block holding
    both reads at a glance. Compared by bounding box, which is right for the
    survey-grid rectangles BLM hands back. */
+/* Ray casting: is this point inside this ring? */
+function inRing(pt,ring){
+  var x=pt[0],y=pt[1],hit=false;
+  for(var i=0,j=ring.length-1;i<ring.length;j=i++){
+    var xi=ring[i][0],yi=ring[i][1],xj=ring[j][0],yj=ring[j][1];
+    if(((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/((yj-yi)||1e-12)+xi))hit=!hit;
+  }
+  return hit;
+}
+function inGeom(pt,g){
+  if(!g)return false;
+  if(g.type==="Polygon")return inRing(pt,g.coordinates[0]);
+  if(g.type==="MultiPolygon")
+    return g.coordinates.some(function(poly){return inRing(pt,poly[0]);});
+  return false;
+}
+
+/* Tallies which recorded occurrences fall inside each claim block. This is a
+   spatial fact about the ground, NOT a statement about what the claim is for:
+   BLM's data carries no commodity, and staking over an old occurrence proves
+   nothing about intent. Phrased that way in the popup on purpose. */
+function crossReference(claims,milo){
+  var pts=(milo.features||[]).map(function(f){
+    if(!f.geometry||f.geometry.type!=="Point")return null;
+    var cat=f.properties&&f.properties._cat;
+    return {c:f.geometry.coordinates,
+            com:(cat&&CAT_LABEL[cat])||(f.properties&&f.properties.Commodity)||"unrecorded"};
+  }).filter(Boolean);
+  if(!pts.length)return;
+
+  (claims.features||[]).forEach(function(cf){
+    var tally={};
+    pts.forEach(function(p){
+      if(inGeom(p.c,cf.geometry)){
+        var k=String(p.com).trim();
+        tally[k]=(tally[k]||0)+1;
+      }
+    });
+    var keys=Object.keys(tally);
+    if(!keys.length)return;
+    keys.sort(function(a,b){return tally[b]-tally[a];});
+    cf.properties._occ=keys.map(function(k){
+      return k+(tally[k]>1?" ("+tally[k]+")":"");
+    }).join(", ");
+  });
+
+  var src=map.getSource("claims");
+  if(src)src.setData(claims);
+}
+
 function markMixedClaims(geoj){
   var LODE={"384101":1,"384103":1}, PLACER={"384201":1,"384203":1};
   var items=[];
@@ -757,8 +910,24 @@ function markMixedClaims(geoj){
 }
 
 function build(L,geoj){
-  map.addSource(L.id,{type:"geojson",data:geoj});
+  if(!map.getSource(L.id))map.addSource(L.id,{type:"geojson",data:geoj});
   var vis=L.defaultOn?"visible":"none";
+
+  if(L.point){
+    var dot={id:L.id+"-f",type:"circle",source:L.id,layout:{visibility:vis},
+      paint:{"circle-radius":MILO_RADIUS,"circle-color":MILO_COLORS,
+             "circle-stroke-width":1.6,"circle-stroke-color":"#FFFFFF",
+             "circle-stroke-opacity":.95}};
+    var lbl={id:L.id+"-t",type:"symbol",source:L.id,minzoom:13,
+      layout:{visibility:vis,"text-field":["coalesce",["get","SiteName"],""],
+              "text-size":11.5,"text-offset":[0,1.0],"text-anchor":"top",
+              "text-allow-overlap":false},
+      paint:{"text-color":"#2E2A20","text-halo-color":"rgba(255,255,255,.95)",
+             "text-halo-width":1.7}};
+    if(L.filter){dot.filter=L.filter;lbl.filter=L.filter;}
+    map.addLayer(dot); map.addLayer(lbl);
+    return;
+  }
 
   if(L.opacity>0&&L.fill){
     map.addLayer({id:L.id+"-f",type:"fill",source:L.id,layout:{visibility:vis},
