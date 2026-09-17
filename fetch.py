@@ -73,14 +73,6 @@ SOURCES = [
                  "RCRD_ACRS","LEG_CSE_NR"],
     },
     {
-        "name": "Land manager",
-        "out": "ownership.geojson",
-        "who": "BLM Surface Management Agency",
-        "url": "https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_LimitedScale/MapServer/1/query",
-        "where": "1=1",
-        "page": 1000,
-    },
-    {
         "name": "Mineral occurrences",
         "out": "milo.geojson",
         "who": "Oregon DOGAMI, Mineral Information Layer (MILO)",
@@ -88,11 +80,13 @@ SOURCES = [
         "where": "1=1",
         "page": 1000,
         "classify": True,
-        "keep": ["SiteName","Synonym","Commodity","CommoditiesProduced","Type",
-                 "OperatingStatus","DepositType","OreMaterial","WorkingsType",
-                 "WorkingsDescription","MiningDistrict","YearOfDiscovery",
-                 "ElevationFeet","Owner","ShortReference1","ShortReference2",
-                 "ShortReference3","MILO_ID"],
+        "keep": ["SiteName","Commodity","CommodityAbreviation","CommoditiesProduced",
+                 "Type","DepositType","OreMaterial","WorkingsType",
+                 "WorkingsDescription","YearOfDiscovery","ElevationFeet","Owner",
+                 "County","Township","Range","Section","TopoMap24k","TopoMap100k",
+                 "MapUnit","MapUnitName","ThematicLithology","ThematicAge",
+                 "ThematicFormation","ThematicTerraneGroup",
+                 "ShortReference1","ShortReference2","ShortReference3","MILO_ID"],
     },
     {
         "name": "Survey grid",
@@ -158,7 +152,7 @@ COMMODITY_RULES = [
     ("thunderegg",["thunderegg", "thunder egg", "geode", "amethyst", "quartz crystal",
                    "rock crystal", "crystal"]),
     ("obsidian",  ["obsidian"]),
-    ("gem_other", ["gem", "jade", "nephrite", "garnet", "rhodonite", "serpentine",
+    ("gem_other", ["gem material", "gemstone", "gem", "jade", "nephrite", "garnet", "rhodonite", "serpentine",
                    "turquoise", "variscite", "onyx", "beryl", "topaz", "sapphire",
                    "ruby", "peridot", "olivine gem", "zeolite gem"]),
     ("metal",     ["copper", "lead", "zinc", "mercury", "cinnabar", "chromite",
@@ -172,9 +166,16 @@ GEM_CATS = {"sunstone", "opal", "agate", "wood", "thunderegg", "obsidian", "gem_
 
 
 def classify(props):
-    """Return (category, group) or (None, None) to drop the record."""
+    """Return (category, group) or (None, None) to drop the record.
+
+    CommodityAbreviation holds the actual mineral ("sunstone", "gold").
+    Commodity is only a broad bucket ("gem materials"), so it is the
+    fallback. SiteName is deliberately NOT read: mines get named things
+    like "Gold Sheen" that have nothing to do with what is in them.
+    """
     text = " ".join(str(props.get(f) or "") for f in
-                    ("Commodity", "CommoditiesProduced", "OreMaterial", "SiteName")).lower()
+                    ("CommodityAbreviation", "Commodity",
+                     "CommoditiesProduced", "OreMaterial")).lower()
     if not text.strip():
         return None, None
     for cat, words in COMMODITY_RULES:

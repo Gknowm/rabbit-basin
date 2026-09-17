@@ -224,16 +224,6 @@
   <div id="legend"></div>
 
   <div class="layer">
-    <span class="swatch" style="background:linear-gradient(135deg,#F2D98C,#9DBE8A)"></span>
-    <span class="txt"><span class="nm">Land manager</span><span class="src" id="src-sma">BLM Surface Management Agency</span></span>
-    <span class="sw"><input type="checkbox" id="ck-sma"><i></i></span>
-  </div>
-  <div class="sub">
-    <label for="op-sma">Fill strength</label>
-    <input type="range" id="op-sma" min="0" max="80" value="35">
-  </div>
-
-  <div class="layer">
     <span class="swatch" style="background:linear-gradient(135deg,#2C6FB5 0 33%,#2E8B4A 33% 66%,#F2B01E 66%)"></span>
     <span class="txt"><span class="nm">Mining claims</span><span class="src" id="src-claims">BLM MLRS, not closed</span></span>
     <span class="sw"><input type="checkbox" id="ck-claims" checked><i></i></span>
@@ -351,11 +341,7 @@ var GEO_COLORS={
 var GEO_FALLBACK="#A89B84";
 
 /* Surface management agency colors, close to the usual federal convention. */
-var SMA_COLORS={
-  "BLM":"#F2D98C","USFS":"#9DBE8A","FS":"#9DBE8A","FWS":"#E0A04A","NPS":"#B89AC4",
-  "BOR":"#8FB6C4","DOD":"#C4A6A0","DOE":"#C4A6A0","BIA":"#C9B27E",
-  "STATE":"#7FA3C4","OTHFED":"#BDB6A6","PVT":"#EFEAE0","PRIVATE":"#EFEAE0"
-};
+
 
 var map=new maplibregl.Map({
   container:"map",
@@ -663,30 +649,42 @@ var MILO_RADIUS=["interpolate",["linear"],["zoom"],
   16,["case",["in",["get","_cat"],["literal",["gold","silver"]]],10,7]];
 
 function miloPopup(p){
-  var name=first(p,"SiteName")||"Mineral occurrence";
-  var com=first(p,"Commodity");
+  var name=first(p,"SiteName");
+  if(!name||/^unnamed/i.test(name))name="Unnamed occurrence";
+  var mineral=first(p,"CommodityAbreviation");
   var html="<h3>"+esc(name)+"</h3>";
-  var kick=[CAT_LABEL[first(p,"_cat")]||first(p,"Type"),
-            first(p,"OperatingStatus")].filter(Boolean).join(" &middot; ");
-  if(kick)html+='<p class="kicker">'+kick+"</p>";
+  var kick=[CAT_LABEL[first(p,"_cat")]||mineral||first(p,"Commodity"),
+            first(p,"WorkingsType")].filter(Boolean).join(" &middot; ");
+  if(kick)html+='<p class="kicker">'+esc(kick)+"</p>";
+
+  var trs=first(p,"Township"), rng=first(p,"Range"), sec=first(p,"Section");
+  var legal=(sec?"Sec "+sec+" ":"")+(trs||"")+(rng?" "+rng:"");
+
   html+=rows([
-    ["Commodity",com],
+    ["Mineral",mineral],
+    ["Recorded as",first(p,"Commodity")],
     ["Produced",first(p,"CommoditiesProduced")],
-    ["Deposit type",first(p,"DepositType")],
-    ["Ore material",first(p,"OreMaterial")],
-    ["Workings",first(p,"WorkingsType")],
-    ["District",first(p,"MiningDistrict")],
-    ["Discovered",first(p,"YearOfDiscovery")],
+    ["Deposit",first(p,"DepositType")],
+    ["Host rock",first(p,"MapUnitName")||first(p,"ThematicLithology")],
+    ["Formation",first(p,"ThematicFormation")],
+    ["Age",first(p,"ThematicAge")],
+    ["Owner of record",first(p,"Owner")],
+    ["Location",legal.trim()||null],
+    ["County",first(p,"County")],
     ["Elevation",first(p,"ElevationFeet")?first(p,"ElevationFeet")+" ft":null],
-    ["Also called",first(p,"Synonym")]
+    ["Quad",first(p,"TopoMap24k")],
+    ["Discovered",first(p,"YearOfDiscovery")]
   ]);
+
   var wd=first(p,"WorkingsDescription");
   if(wd)html+='<p class="warn" style="color:#3D3728;border-top-color:#DCD4C4">'+esc(wd)+"</p>";
+
   var refs=[first(p,"ShortReference1"),first(p,"ShortReference2"),first(p,"ShortReference3")]
     .filter(Boolean);
-  if(refs.length)html+='<p class="kicker" style="margin:9px 0 0">'+esc(refs.join("; "))+"</p>";
+  if(refs.length)html+='<p class="kicker" style="margin:9px 0 0">Source: '+esc(refs.join("; "))+"</p>";
+
   html+='<p class="warn">A recorded occurrence, not a claim and not permission to collect. '+
-        "Much of MILO comes from historic reports.</p>";
+        "The owner shown is DOGAMI&rsquo;s record and may be years out of date.</p>";
   return html;
 }
 
@@ -715,22 +713,6 @@ var LAYERS=[
       if(cite) html+='<p class="kicker" style="margin:9px 0 0">'+
         (link?'<a href="'+esc(link)+'" target="_blank" rel="noopener">'+esc(cite)+"</a>":esc(cite))+"</p>";
       return html;
-    }
-  },
-  {
-    id:"sma", file:"data/ownership.geojson", check:"ck-sma", src:"src-sma",
-    order:1, defaultOn:false, opacity:0.35, opSlider:"op-sma",
-    fill:function(){return matchExpr("ADMIN_AGENCY_CODE",SMA_COLORS,"#C9C2B2");},
-    line:"#5C5443",
-    lineWidth:1,
-    popup:function(p){
-      var ag=first(p,"ADMIN_AGENCY_CODE","AGENCY","OWNER")||"Unknown";
-      return "<h3>"+esc(first(p,"ADMIN_UNIT_NAME","UNIT_NAME","ADMIN_DEPT_CODE")||ag)+"</h3>"+
-        '<p class="kicker">Surface managed by '+esc(ag)+"</p>"+
-        rows([["Department",first(p,"ADMIN_DEPT_CODE")],
-              ["State",first(p,"ADMIN_ST")],
-              ["Source",first(p,"SMA_CODE","GIS_ACRES")]])+
-        '<p class="warn">Land status is a reference layer, not a boundary survey.</p>';
     }
   },
   {
@@ -811,7 +793,7 @@ map.on("load",function(){
 
 function markMissing(L){
   var el=document.getElementById(L.src);
-  el.textContent="Not downloaded yet — run fetch-data.sh";
+  el.textContent="Not downloaded yet — run fetch.py";
   el.classList.add("miss");
   var ck=document.getElementById(L.check);
   ck.checked=false; ck.disabled=true;
