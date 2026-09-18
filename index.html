@@ -70,6 +70,10 @@
   .sw input:checked + i::after{transform:translateX(20px);background:#fff}
   .sw input:focus-visible + i{outline:2px solid var(--copperlit);outline-offset:2px}
 
+  .impbtn{padding:9px 14px;background:var(--basalt2);color:var(--playa);
+    border:1px solid var(--edge);border-radius:9px;font:inherit;font-size:13.5px;
+    cursor:pointer;margin:0 8px 8px 0}
+  .impbtn:active{background:var(--edge)}
   .sub{padding:0 0 14px 38px}
   .sub label{display:block;font-size:12.5px;color:var(--sage);margin-bottom:7px}
   input[type=range]{width:100%;accent-color:var(--copper)}
@@ -259,6 +263,19 @@
     <div class="kk"><b style="background:#4A6FC4"></b>Thunderegg / crystal</div>
     <div class="kk"><b style="background:#22222A"></b>Obsidian</div>
     <div class="kk"><b style="background:#8A9A3B"></b>Other gem</div>
+  </div>
+
+  <div class="layer">
+    <span class="swatch" style="background:#E5007D"></span>
+    <span class="txt"><span class="nm">Imported points</span><span class="src" id="src-custom">No file loaded</span></span>
+    <span class="sw"><input type="checkbox" id="ck-custom"><i></i></span>
+  </div>
+  <div class="sub" style="padding-bottom:16px">
+    <button class="impbtn" id="imp-pick" type="button">Load a file…</button>
+    <button class="impbtn" id="imp-clear" type="button">Remove</button>
+    <input type="file" id="imp-file" accept=".geojson,.json,application/geo+json,application/json" style="display:none">
+    <p class="lede" style="padding:8px 0 0;margin:0">A GeoJSON file from your phone. It stays on this
+      phone — nothing is uploaded and nothing leaves the app.</p>
   </div>
 
   <div class="layer">
@@ -749,6 +766,12 @@ var LAYERS=[
     lineWidth:1.5,
     label:["coalesce",["get","CSE_NAME"],["get","CSE_NR"],""],
     popup:function(p){return claimPopup(p);}
+  },
+  {
+    /* Loaded from a file on the phone, never from the web. See customApply. */
+    id:"custom", local:true, custom:true, check:"ck-custom", src:"src-custom",
+    order:6, defaultOn:false,
+    popup:function(p){return customPopup(p);}
   }
 ];
 
@@ -769,6 +792,7 @@ map.on("load",function(){
   wpRefresh();
 
   LAYERS.forEach(function(L){
+    if(L.local){ customBoot(L); return; }
     fetch(L.file).then(function(r){return r.ok?r.json():null;}).then(function(g){
       if(!g||!g.features||!g.features.length){markMissing(L);return;}
       if(L.id==="claims")markMixedClaims(g);
@@ -790,6 +814,99 @@ map.on("load",function(){
     }).catch(function(){markMissing(L);});
   });
 });
+
+/* ---------- imported points ----------
+   A GeoJSON file picked from the phone. Kept in this phone's own storage,
+   never fetched from the web and never sent anywhere. Clearing Safari's
+   website data removes it, so keep the original file somewhere safe. */
+var CUSTOM_KEY="fieldmap.custom.v1";
+
+function customLoad(){
+  try{return JSON.parse(localStorage.getItem(CUSTOM_KEY));}catch(e){return null;}
+}
+function customStore(o){
+  try{localStorage.setItem(CUSTOM_KEY,JSON.stringify(o));return true;}catch(e){return false;}
+}
+function customBlank(L){
+  var el=document.getElementById(L.src);
+  el.textContent="No file loaded";
+  el.classList.add("miss");
+  var ck=document.getElementById(L.check);
+  ck.checked=false; ck.disabled=true;
+}
+function customBoot(L){
+  var saved=customLoad();
+  if(saved&&saved.geojson&&saved.geojson.features&&saved.geojson.features.length)
+    customApply(L,saved.geojson,saved.name,false);
+  else customBlank(L);
+}
+function customApply(L,geoj,fname,persist){
+  if(map.getSource(L.id))map.getSource(L.id).setData(geoj);
+  else build(L,geoj);
+  loaded[L.id]=true;
+  RAW[L.id]=geoj;
+  var n=geoj.features.length;
+  var el=document.getElementById(L.src);
+  el.classList.remove("miss");
+  el.textContent=n.toLocaleString()+(n===1?" feature":" features")+(fname?" · "+fname:"");
+  var ck=document.getElementById(L.check);
+  ck.disabled=false; ck.checked=true;
+  setVisible(L,true);
+  if(persist&&!customStore({name:fname||"",savedAt:Date.now(),geojson:geoj}))
+    toast("Loaded, but too big to keep. It will be gone next time you open the app.");
+}
+function customPopup(p){
+  p=p||{};
+  var title=first(p,"name","Name","title","Title","SiteName","label","Label","id","ID")||"Imported feature";
+  var skip={name:1,Name:1,title:1,Title:1,SiteName:1,label:1,Label:1};
+  var list=[];
+  Object.keys(p).forEach(function(k){
+    if(skip[k])return;
+    var v=p[k];
+    if(v===null||v===undefined||v===""||typeof v==="object")return;
+    list.push([k,String(v)]);
+  });
+  return "<h3>"+esc(title)+"</h3>"+
+    '<p class="kicker">From your imported file</p>'+rows(list);
+}
+
+(function importWiring(){
+  var L=LAYERS.filter(function(x){return x.id==="custom";})[0];
+  var pick=document.getElementById("imp-pick");
+  var file=document.getElementById("imp-file");
+  var clear=document.getElementById("imp-clear");
+  if(!L||!pick||!file||!clear)return;
+
+  pick.onclick=function(){ file.value=""; file.click(); };
+
+  file.onchange=function(){
+    var f=file.files&&file.files[0];
+    if(!f)return;
+    var rd=new FileReader();
+    rd.onerror=function(){ toast("Could not read that file."); };
+    rd.onload=function(){
+      var g;
+      try{ g=JSON.parse(rd.result); }
+      catch(err){ toast("That file is not readable as GeoJSON."); return; }
+      if(g&&g.type==="Feature")g={type:"FeatureCollection",features:[g]};
+      if(!g||g.type!=="FeatureCollection"||!g.features||!g.features.length){
+        toast("No features found in that file."); return;
+      }
+      customApply(L,g,f.name,true);
+      toast(g.features.length+" loaded from "+f.name);
+    };
+    rd.readAsText(f);
+  };
+
+  clear.onclick=function(){
+    try{ localStorage.removeItem(CUSTOM_KEY); }catch(e){}
+    if(map.getSource(L.id))
+      map.getSource(L.id).setData({type:"FeatureCollection",features:[]});
+    loaded[L.id]=false;
+    customBlank(L);
+    toast("Imported points removed.");
+  };
+})();
 
 function markMissing(L){
   var el=document.getElementById(L.src);
@@ -895,6 +1012,25 @@ function build(L,geoj){
   if(!map.getSource(L.id))map.addSource(L.id,{type:"geojson",data:geoj});
   var vis=L.defaultOn?"visible":"none";
 
+  if(L.custom){
+    map.addLayer({id:L.id+"-f",type:"circle",source:L.id,layout:{visibility:vis},
+      filter:["==",["geometry-type"],"Point"],
+      paint:{"circle-radius":8,"circle-color":"#E5007D",
+             "circle-stroke-width":2.2,"circle-stroke-color":"#FFFFFF"}});
+    map.addLayer({id:L.id+"-l",type:"line",source:L.id,layout:{visibility:vis},
+      filter:["!=",["geometry-type"],"Point"],
+      paint:{"line-color":"#E5007D","line-width":2}});
+    map.addLayer({id:L.id+"-t",type:"symbol",source:L.id,minzoom:10,
+      layout:{visibility:vis,
+        "text-field":["coalesce",["get","name"],["get","Name"],["get","title"],
+                      ["get","label"],["get","id"],""],
+        "text-size":12,"text-offset":[0,1.1],"text-anchor":"top",
+        "text-allow-overlap":false},
+      paint:{"text-color":"#7A0044","text-halo-color":"rgba(255,255,255,.95)",
+             "text-halo-width":2}});
+    return;
+  }
+
   if(L.point){
     var dot={id:L.id+"-f",type:"circle",source:L.id,layout:{visibility:vis},
       paint:{"circle-radius":MILO_RADIUS,"circle-color":MILO_COLORS,
@@ -984,6 +1120,11 @@ map.on("click",function(e){
   LAYERS.forEach(function(L){
     if(!loaded[L.id])return;
     if(!document.getElementById(L.check).checked)return;
+    if(L.custom){
+      if(map.getLayer(L.id+"-f"))ids.push(L.id+"-f");
+      if(map.getLayer(L.id+"-l"))ids.push(L.id+"-l");
+      return;
+    }
     if(map.getLayer(L.id+"-f"))ids.push(L.id+"-f");
     else if(map.getLayer(L.id+"-l"))ids.push(L.id+"-l");
   });
@@ -992,7 +1133,7 @@ map.on("click",function(e){
   var hits=map.queryRenderedFeatures(box,{layers:ids});
   if(!hits.length)return;
 
-  var order={claims:0,geology:1,sma:2,plss:3};
+  var order={custom:-1,claims:0,geology:1,sma:2,plss:3};
   var items=[];
   var seen={};
   hits.forEach(function(f){
