@@ -1,29 +1,22 @@
 #!/usr/bin/env python3
 """
-Fills in everything the Oregon map needs. Run it once:
+Fills in everything the map needs. Run it once:
 
     python3 fetch.py
 
-Two layers only, statewide:
-
-  1. Gem and rockhounding occurrences from DOGAMI MILO, whole state.
-  2. BLM mining claims, but ONLY the ones within 5 km of one of those
-     occurrences. Statewide claims would be 10-30 MB and most of it is
-     gold country you have no reason to look at. This keeps the file
-     small and keeps every claim that could actually matter to you.
+It downloads four datasets straight from the agencies that publish them,
+plus the mapping library the page uses, and drops them into data/ and
+vendor/. Nothing here touches Land Matters or any other third party site.
 
 To check the sources are alive without downloading anything:
 
     python3 fetch.py --check
 
-To add gold claims and mines later, set GOLD = True below and run it
-again. The map already knows how to draw them.
-
+To cover different ground, change BBOX below and run it again.
 Needs Python 3.8 or newer. No extra packages.
 """
 
 import json
-import math
 import os
 import ssl
 import sys
@@ -31,51 +24,45 @@ import urllib.parse
 import urllib.request
 
 # ----------------------------------------------------------------------
-# SETTINGS you might want to change.
-# ----------------------------------------------------------------------
-
-# Include gold and other metals? Off for now. Flip to True and re-run to
-# add them; nothing else needs changing.
-GOLD = False
-
-# How far from one of your anchor points a claim has to be before it is
-# dropped. 15 km is about 9 miles.
-CLAIM_RADIUS_KM = 15.0
-
-# The ground you care about. Claims are pulled around THESE points, not
-# around MILO occurrences.
+# The ground you want, as west, south, east, north in degrees.
 #
-# Anchoring on occurrences was a mistake: it threw away exactly the claims
-# worth seeing. An active claim with no occurrence record means somebody
-# staked ground, is paying to hold it, and nothing in any database says
-# why. Those are the interesting ones.
+# Run it with no name and you get Rabbit Basin, exactly as before:
+#     python3 fetch.py
 #
-# Add a line for any new ground. Claims are taken whole here - BLM records
-# no commodity, so there is no way to ask for gem claims only. Keeping the
-# anchors on gem country is what keeps the gold districts out.
-ANCHORS = [
-    ( 43.99540,  -119.15870),   # Silvies 1
-    ( 45.15340,  -117.58600),   # NE Oregon 2
-    ( 44.20000,  -119.78000),   # Silvies 3
-    ( 44.23000,  -119.78000),   # Silvies 4
-    ( 44.20000,  -119.82000),   # Silvies 5
-    ( 42.67550,  -120.01200),   # Warner 6
-    ( 42.66790,  -120.00600),   # Warner 7
-    ( 43.13100,  -119.94200),   # Harney 8
-    ( 45.88333,  -116.85000),   # NE Oregon X1
-    ( 45.39460,  -117.82200),   # NE Oregon X2
-    ( 45.27800,  -117.83300),   # NE Oregon X3
-    ( 45.15600,  -117.77300),   # NE Oregon X4
-    ( 45.50820,  -117.95300),   # NE Oregon X5
-    ( 43.85650,  -119.52600),   # Ponderosa (ref)
-    ( 42.71420,  -119.86620),   # Dust Devil (ref)
-    ( 42.82440,  -119.89530),   # Plush (ref)
-]
-
-# The whole state, as west, south, east, north.
-OREGON = (-124.70, 41.90, -116.40, 46.30)
-
+# Or name one of the regions below:
+#     python3 fetch.py silvies
+#
+# To see the list without downloading:
+#     python3 fetch.py --regions
+#
+# IMPORTANT: the files land in data/ inside whatever folder you run this
+# from. To keep two regions, duplicate the whole folder first and run it
+# once in each. One folder, one region.
+#
+# To add your own, copy a line and change the four numbers. Bigger box,
+# bigger files; that is the only cost.
 # ----------------------------------------------------------------------
+REGIONS = {
+    # Sunstone country north of Plush, Lake County. The original.
+    "rabbit-basin": (-119.95, 42.55, -119.30, 42.95),
+
+    # Silvies and Seneca country, Harney and Grant counties. Holds the
+    # Ponderosa mine and ten of the sixteen chemical targets.
+    "silvies":      (-119.70, 43.78, -119.00, 44.20),
+
+    # Eastern targets, from Bear Valley across to the Vale corridor near
+    # the Idaho line. Roughly four times the area of Rabbit Basin, so
+    # expect files four times the size. Trim it if it is unwieldy.
+    "east":         (-119.05, 43.75, -117.75, 44.60),
+
+    # Untested ground, listed so it is easy to try. No rock chemistry
+    # exists for either, so the map is for looking around, not targets.
+    "alvord":       (-118.90, 42.20, -118.10, 42.90),
+    "swamp-butte":  (-118.80, 42.95, -118.10, 43.55),
+}
+
+DEFAULT_REGION = "rabbit-basin"
+BBOX = REGIONS[DEFAULT_REGION]
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data")
@@ -89,31 +76,104 @@ VENDOR_FILES = [
      "maplibre-gl.css"),
 ]
 
-# MILO release 4 (24,664 records statewide, and it carries DOGAMI's own
-# assay results). Release 3 lived at Public/MILOv3/MapServer/1.
-MILO_URL = ("https://gis.dogami.oregon.gov/arcgis/rest/services/"
-            "Public/MILO/MapServer/1/query")
-CLAIMS_URL = ("https://gis.blm.gov/nlsdb/rest/services/HUB/"
-              "BLM_Natl_MLRS_Mining_Claims_Not_Closed/FeatureServer/0/query")
+# ----------------------------------------------------------------------
+# The four layers. Each one is a public ArcGIS service run by the agency
+# that owns the data.
+#
+# If a source ever moves, the script will tell you which one failed.
+# Search the agency's REST directory for the new address and change the
+# "url" line here — nothing else needs to change.
+# ----------------------------------------------------------------------
+SOURCES = [
+    {
+        "name": "Geology",
+        "out": "geology.geojson",
+        "who": "Oregon Dept. of Geology and Mineral Industries (OGDC)",
+        "url": "https://gis.dogami.oregon.gov/arcgis/rest/services/Public/OGDC6/MapServer/2/query",
+        "where": "1=1",
+        "page": 1000,
+        "keep": ["MAP_UNIT_L","MAP_UNIT_N","FORMATION","G_MRG_U_L","AGE_NAME","G_ROCK_TYP",
+                 "LTH_RK_TYP","LITH_GEN_U","LITH_M_U_L","CR_GRN_SIZ","TERRANE_GR","MEMBER",
+                 "des","Citation","Link"],
+    },
+    {
+        "name": "Mining claims",
+        "out": "claims.geojson",
+        "who": "BLM Mineral and Land Records System, cases not closed",
+        "url": "https://gis.blm.gov/nlsdb/rest/services/HUB/BLM_Natl_MLRS_Mining_Claims_Not_Closed/FeatureServer/0/query",
+        "where": "1=1",
+        "page": 2000,
+        "keep": ["OBJECTID","CSE_NAME","CSE_NR","CSE_TYPE_NR","CSE_DISP","QLTY",
+                 "RCRD_ACRS","LEG_CSE_NR"],
+    },
+    {
+        "name": "Mineral occurrences",
+        "out": "milo.geojson",
+        "who": "Oregon DOGAMI, Mineral Information Layer (MILO)",
+        "url": "https://gis.dogami.oregon.gov/arcgis/rest/services/Public/MILOv3/MapServer/1/query",
+        "where": "1=1",
+        "page": 1000,
+        "classify": True,
+        "keep": ["SiteName","Commodity","CommodityAbreviation","CommoditiesProduced",
+                 "Type","DepositType","OreMaterial","WorkingsType",
+                 "WorkingsDescription","YearOfDiscovery","ElevationFeet","Owner",
+                 "County","Township","Range","Section","TopoMap24k","TopoMap100k",
+                 "MapUnit","MapUnitName","ThematicLithology","ThematicAge",
+                 "ThematicFormation","ThematicTerraneGroup",
+                 "ShortReference1","ShortReference2","ShortReference3","MILO_ID"],
+    },
+    {
+        "name": "Survey grid",
+        "out": "plss.geojson",
+        "who": "BLM PLSS CadNSDI, sections and aliquot parts",
+        "url": "https://gis.blm.gov/arcgis/rest/services/Cadastral/BLM_Natl_PLSS_CadNSDI/MapServer/2/query",
+        "where": "1=1",
+        "page": 1000,
+        "keep": ["FRSTDIVNO","FRSTDIVID","PLSSID","TWNSHPLAB","FRSTDIVTYP"],
+    },
+]
 
-MILO_KEEP = ["SiteName", "Commodity", "CommodityAbreviation", "CommoditiesProduced",
-             "Type", "DepositType", "OreMaterial", "WorkingsType",
-             "WorkingsDescription", "YearOfDiscovery", "ElevationFeet", "Owner",
-             "County", "Township", "Range", "Section", "TopoMap24k", "TopoMap100k",
-             "MapUnit", "MapUnitName", "ThematicLithology", "ThematicAge",
-             "ThematicFormation", "ThematicTerraneGroup",
-             "ShortReference1", "ShortReference2", "ShortReference3", "MILO_ID"]
+CTX = ssl.create_default_context()
+UA = {"User-Agent": "rabbit-basin-field-map/1.0 (personal offline map)"}
 
-# QLTY is a diagnostic string the server tacks on. It is pure noise and it
-# was a quarter of the old claims file, so it is not in this list.
-CLAIMS_KEEP = ["OBJECTID", "CSE_NAME", "CSE_NR", "CSE_TYPE_NR", "CSE_DISP",
-               "RCRD_ACRS", "LEG_CSE_NR"]
 
-PRECISION = 6   # about four inches on the ground
+def get(url, timeout=90):
+    req = urllib.request.Request(url, headers=UA)
+    with urllib.request.urlopen(req, timeout=timeout, context=CTX) as r:
+        return r.read()
+
+
+def query_url(src, offset, count, geometry_only=True):
+    params = {
+        "where": src["where"],
+        "outFields": "*",
+        "f": "geojson",
+        "returnGeometry": "true",
+        "outSR": "4326",
+        "resultOffset": offset,
+        "resultRecordCount": count,
+    }
+    if geometry_only:
+        params.update({
+            "geometry": ",".join(str(v) for v in BBOX),
+            "geometryType": "esriGeometryEnvelope",
+            "inSR": "4326",
+            "spatialRel": "esriSpatialRelIntersects",
+        })
+    return src["url"] + "?" + urllib.parse.urlencode(params)
+
+
+PRECISION = 6   # ~4 inches on the ground; source gives ~15 decimals
 
 # ----------------------------------------------------------------------
-# Same classifier as the Rabbit Basin map, so the two agree about what
-# counts as what. First match wins.
+# MILO covers everything from gravel pits to gold mines. Most of it is of
+# no interest to a rockhound, so occurrences are sorted into categories
+# here and anything unclassified is thrown away before it ever reaches
+# the phone. Edit these lists to change what shows up.
+#
+# Order matters: the first match wins, so gold beats silver beats the
+# generic metals, and a site listing several commodities lands in the
+# most interesting one.
 # ----------------------------------------------------------------------
 COMMODITY_RULES = [
     ("gold",      ["gold", "placer gold", "au "]),
@@ -123,13 +183,12 @@ COMMODITY_RULES = [
     ("agate",     ["agate", "jasper", "chalcedony", "carnelian", "bloodstone",
                    "moss agate", "plume agate"]),
     ("wood",      ["petrified wood", "fossil wood", "silicified wood", "petrified"]),
-    ("thunderegg", ["thunderegg", "thunder egg", "geode", "amethyst", "quartz crystal",
-                    "rock crystal", "crystal"]),
+    ("thunderegg",["thunderegg", "thunder egg", "geode", "amethyst", "quartz crystal",
+                   "rock crystal", "crystal"]),
     ("obsidian",  ["obsidian"]),
-    ("gem_other", ["gem material", "gemstone", "gem", "jade", "nephrite", "garnet",
-                   "rhodonite", "serpentine", "turquoise", "variscite", "onyx",
-                   "beryl", "topaz", "sapphire", "ruby", "peridot", "olivine gem",
-                   "zeolite gem"]),
+    ("gem_other", ["gem material", "gemstone", "gem", "jade", "nephrite", "garnet", "rhodonite", "serpentine",
+                   "turquoise", "variscite", "onyx", "beryl", "topaz", "sapphire",
+                   "ruby", "peridot", "olivine gem", "zeolite gem"]),
     ("metal",     ["copper", "lead", "zinc", "mercury", "cinnabar", "chromite",
                    "chromium", "nickel", "cobalt", "manganese", "antimony",
                    "tungsten", "uranium", "platinum", "molybdenum", "tin",
@@ -139,21 +198,14 @@ COMMODITY_RULES = [
 
 GEM_CATS = {"sunstone", "opal", "agate", "wood", "thunderegg", "obsidian", "gem_other"}
 
-CTX = ssl.create_default_context()
-UA = {"User-Agent": "oregon-rockhound-map/1.0 (personal offline map)"}
-
-
-def get(url, timeout=120):
-    req = urllib.request.Request(url, headers=UA)
-    with urllib.request.urlopen(req, timeout=timeout, context=CTX) as r:
-        return r.read()
-
 
 def classify(props):
-    """Return (category, group), or (None, None) to throw the record away.
+    """Return (category, group) or (None, None) to drop the record.
 
-    SiteName is deliberately not read: mines get named things like
-    "Gold Sheen" that say nothing about what is in them.
+    CommodityAbreviation holds the actual mineral ("sunstone", "gold").
+    Commodity is only a broad bucket ("gem materials"), so it is the
+    fallback. SiteName is deliberately NOT read: mines get named things
+    like "Gold Sheen" that have nothing to do with what is in them.
     """
     text = " ".join(str(props.get(f) or "") for f in
                     ("CommodityAbreviation", "Commodity",
@@ -168,6 +220,7 @@ def classify(props):
 
 
 def trim_coords(node):
+    """Round every coordinate in a nested list to PRECISION decimals."""
     if isinstance(node, list):
         if node and isinstance(node[0], (int, float)):
             return [round(v, PRECISION) for v in node]
@@ -177,8 +230,10 @@ def trim_coords(node):
 
 def slim(feature, keep):
     props = feature.get("properties") or {}
-    props = {k: v for k, v in props.items()
-             if k in keep and v not in (None, "", "Null", " ")}
+    if keep:
+        props = {k: v for k, v in props.items() if k in keep and v not in (None, "", "Null")}
+    else:
+        props = {k: v for k, v in props.items() if v not in (None, "", "Null")}
     geom = feature.get("geometry")
     if geom and "coordinates" in geom:
         geom = dict(geom)
@@ -186,112 +241,72 @@ def slim(feature, keep):
     return {"type": "Feature", "properties": props, "geometry": geom}
 
 
-def query(url, bbox, page=1000, label=""):
-    """Pull every feature inside bbox, one page at a time."""
+def fetch_layer(src):
     features = []
     offset = 0
+    page = src["page"]
+
     while True:
-        params = {
-            "where": "1=1",
-            "outFields": "*",
-            "f": "geojson",
-            "returnGeometry": "true",
-            "outSR": "4326",
-            "resultOffset": offset,
-            "resultRecordCount": page,
-            "geometry": ",".join(str(v) for v in bbox),
-            "geometryType": "esriGeometryEnvelope",
-            "inSR": "4326",
-            "spatialRel": "esriSpatialRelIntersects",
-        }
-        doc = json.loads(get(url + "?" + urllib.parse.urlencode(params)))
+        url = query_url(src, offset, page)
+        raw = get(url)
+        try:
+            doc = json.loads(raw)
+        except json.JSONDecodeError:
+            raise RuntimeError("server did not return JSON")
+
         if "error" in doc:
             raise RuntimeError(doc["error"].get("message", "server error"))
+
         batch = doc.get("features") or []
         features.extend(batch)
-        if label:
-            sys.stdout.write(f"\r    {label} {len(features):,} features…")
-            sys.stdout.flush()
-        # Advance by what actually came back, not by what we asked for. The
-        # server may cap the page size well below `page`; trusting our own
-        # number here silently loses every record past the first page.
-        if not batch:
+        sys.stdout.write(f"\r    {len(features):,} features…")
+        sys.stdout.flush()
+
+        if len(batch) < page or not doc.get("exceededTransferLimit", False):
+            if len(batch) < page:
+                break
+        offset += page
+        if offset > 200000:
             break
-        offset += len(batch)
-        if offset > 300000:
-            break
-    if label:
-        sys.stdout.write("\r" + " " * 50 + "\r")
-    return features
 
+    sys.stdout.write("\r" + " " * 40 + "\r")
+    keep = set(src.get("keep") or [])
+    features = [slim(f, keep) for f in features]
 
-def centroid(geom):
-    """Rough centre of any geometry. Good enough for a distance screen."""
-    xs, ys = [], []
+    if src.get("classify"):
+        kept = []
+        for f in features:
+            cat, grp = classify(f["properties"])
+            if not cat:
+                continue
+            f["properties"]["_cat"] = cat
+            f["properties"]["_grp"] = grp
+            kept.append(f)
+        features = kept
 
-    def walk(node):
-        if isinstance(node, list):
-            if node and isinstance(node[0], (int, float)):
-                xs.append(node[0])
-                ys.append(node[1])
-            else:
-                for v in node:
-                    walk(v)
-    walk((geom or {}).get("coordinates"))
-    if not xs:
-        return None
-    return (sum(xs) / len(xs), sum(ys) / len(ys))
-
-
-def km_apart(lon1, lat1, lon2, lat2):
-    R = 6371.0
-    p = math.radians
-    a = (math.sin(p(lat2 - lat1) / 2) ** 2 +
-         math.cos(p(lat1)) * math.cos(p(lat2)) * math.sin(p(lon2 - lon1) / 2) ** 2)
-    return 2 * R * math.asin(math.sqrt(a))
-
-
-def cells_around(points, radius_km, cell_deg=0.25):
-    """Group occurrence points into a handful of boxes to query.
-
-    One query per occurrence would be hundreds of round trips. Snapping
-    them to a coarse grid first cuts that to a few dozen.
-    """
-    buckets = {}
-    for lon, lat in points:
-        key = (round(lon / cell_deg), round(lat / cell_deg))
-        buckets.setdefault(key, []).append((lon, lat))
-    boxes = []
-    for pts in buckets.values():
-        lons = [p[0] for p in pts]
-        lats = [p[1] for p in pts]
-        mid_lat = sum(lats) / len(lats)
-        dlat = radius_km / 111.32
-        dlon = radius_km / (111.32 * max(math.cos(math.radians(mid_lat)), 0.1))
-        boxes.append((min(lons) - dlon, min(lats) - dlat,
-                      max(lons) + dlon, max(lats) + dlat))
-    return boxes
+    return {"type": "FeatureCollection", "features": features}
 
 
 def check():
     print("Checking sources.\n")
     bad = 0
-    for name, url in (("Mineral occurrences", MILO_URL), ("Mining claims", CLAIMS_URL)):
-        base = url.rsplit("/query", 1)[0]
+    for src in SOURCES:
+        base = src["url"].rsplit("/query", 1)[0]
         try:
             doc = json.loads(get(base + "?f=json", timeout=30))
-            print(f"  OK    {name:<22} {doc.get('name') or 'ok'}")
+            label = doc.get("name") or doc.get("mapName") or "ok"
+            print(f"  OK    {src['name']:<14} {label}")
         except Exception as exc:
             bad += 1
-            print(f"  FAIL  {name:<22} {exc}")
+            print(f"  FAIL  {src['name']:<14} {exc}")
             print(f"        {base}")
     print()
     if bad:
-        print(f"{bad} source(s) unreachable. If it is not your connection, the")
-        print("agency moved the service — find the new address in their REST")
-        print("directory and update the url near the top of this file.")
+        print(f"{bad} source(s) unreachable. If it's not your connection,")
+        print("the agency moved the service — find the new address in their")
+        print("REST directory and update the url in SOURCES above.")
     else:
-        print("Both sources are live.")
+        print("All four sources are live.")
     return 1 if bad else 0
 
 
@@ -307,110 +322,79 @@ def vendor():
             fh.write(get(url))
 
 
+def pick_region():
+    """Read the region name off the command line, if there is one."""
+    global BBOX
+    names = [a for a in sys.argv[1:] if not a.startswith("-")]
+    if not names:
+        return DEFAULT_REGION
+    name = names[0].lower()
+    if name not in REGIONS:
+        print(f"No region called '{name}'. The ones that exist are:\n")
+        for k, v in REGIONS.items():
+            print(f"    {k}")
+        print("\nRun it with one of those, or with no name for "
+              f"{DEFAULT_REGION}.")
+        sys.exit(1)
+    BBOX = REGIONS[name]
+    return name
+
+
+def list_regions():
+    print("Regions you can ask for:\n")
+    for k, (w, s, e, n) in REGIONS.items():
+        mark = "  (default)" if k == DEFAULT_REGION else ""
+        print(f"  {k:14} {abs(e-w):.2f}° x {abs(n-s):.2f}°   "
+              f"({w}, {s}) to ({e}, {n}){mark}")
+    print("\nUsage:  python3 fetch.py silvies")
+    print("Remember: duplicate the folder first. One folder, one region.")
+    return 0
+
+
 def main():
+    if "--regions" in sys.argv:
+        return list_regions()
     if "--check" in sys.argv:
         return check()
 
+    region = pick_region()
+    w, s, e, n = BBOX
+    print(f"Region: {region}")
+    print(f"Area: {abs(e - w):.2f}° x {abs(n - s):.2f}°  ({w}, {s}) to ({e}, {n})\n")
+
     os.makedirs(DATA, exist_ok=True)
-    print("Oregon, whole state.")
-    print(f"Occurrences: gem categories{' plus gold and metals' if GOLD else ' only'}, statewide.")
-    print(f"Claims: everything within {CLAIM_RADIUS_KM:g} km of your "
-          f"{len(ANCHORS)} anchor points.\n")
 
     print("Map library")
     vendor()
 
-    # ---- occurrences -------------------------------------------------
-    print("\nMineral occurrences")
-    print("  Oregon DOGAMI, Mineral Information Layer (MILO)")
-    try:
-        raw = query(MILO_URL, OREGON, 1000, "MILO")
-    except Exception as exc:
-        print(f"    could not download: {exc}")
-        print("    Run  python3 fetch.py --check  to see if the source is down.")
-        return 1
-
-    wanted = set(GEM_CATS) | ({"gold", "silver", "metal"} if GOLD else set())
-    kept = []
-    for f in raw:
-        f = slim(f, set(MILO_KEEP))
-        cat, grp = classify(f["properties"])
-        if cat not in wanted:
-            continue
-        f["properties"]["_cat"] = cat
-        f["properties"]["_grp"] = grp
-        kept.append(f)
-
-    # If MILO-4 renamed its fields, the allow-list above would quietly throw
-    # everything away. Say so rather than writing a file full of empty records.
-    if kept:
-        avg = sum(len(f["properties"]) for f in kept) / len(kept)
-        if avg < 4:
-            print("    WARNING: records are coming through nearly empty, so the")
-            print("    field names in MILO_KEEP probably changed in release 4.")
-            print("    Open the service in a browser to see the current names:")
-            print("    " + MILO_URL.replace("/query", "?f=pjson"))
-
-    path = os.path.join(DATA, "milo.geojson")
-    with open(path, "w") as fh:
-        json.dump({"type": "FeatureCollection", "features": kept}, fh)
-    print(f"    {len(raw):,} statewide records -> {len(kept):,} kept, "
-          f"{os.path.getsize(path)/1048576:.1f} MB")
-
-    tally = {}
-    for f in kept:
-        c = f["properties"]["_cat"]
-        tally[c] = tally.get(c, 0) + 1
-    for c in sorted(tally, key=lambda k: -tally[k]):
-        print(f"      {c:<12} {tally[c]:,}")
-
-    # ---- claims around YOUR anchors, not around the occurrences -------
-    anchors = [(lon, lat) for lat, lon in ANCHORS]
-    boxes = cells_around(anchors, CLAIM_RADIUS_KM)
-
-    print(f"\nMining claims")
-    print(f"  BLM Mineral and Land Records System, cases not closed")
-    print(f"  Every claim within {CLAIM_RADIUS_KM:g} km of your {len(anchors)} "
-          f"anchor points, whatever it is staked for.")
-    print(f"  Those group into {len(boxes)} areas to ask about.")
-
-    seen = {}
-    failed = 0
-    for n, box in enumerate(boxes, 1):
-        before = len(seen)
+    print("\nData")
+    failed = []
+    for src in SOURCES:
+        print(f"  {src['name']}")
+        print(f"    {src['who']}")
         try:
-            for f in query(CLAIMS_URL, box, 1000):
-                f = slim(f, set(CLAIMS_KEEP))
-                key = f["properties"].get("OBJECTID") or json.dumps(f["geometry"])
-                seen[key] = f
+            geo = fetch_layer(src)
         except Exception as exc:
-            failed += 1
-            print(f"\r    area {n} FAILED: {exc}" + " " * 20)
-        else:
-            got = len(seen) - before
-            print(f"\r    area {n:>2} of {len(boxes)}: {got:,} claims"
-                  f"   ({box[1]:.2f},{box[0]:.2f}) to ({box[3]:.2f},{box[2]:.2f})")
-
-    # the box is square, the radius is round — trim the corners
-    near = []
-    for f in seen.values():
-        c = centroid(f["geometry"])
-        if not c:
+            print(f"    could not download: {exc}\n")
+            failed.append(src["name"])
             continue
-        if any(km_apart(c[0], c[1], a[0], a[1]) <= CLAIM_RADIUS_KM for a in anchors):
-            near.append(f)
 
-    path = os.path.join(DATA, "claims.geojson")
-    with open(path, "w") as fh:
-        json.dump({"type": "FeatureCollection", "features": near}, fh)
-    print(f"    {len(seen):,} found in those areas -> {len(near):,} within "
-          f"{CLAIM_RADIUS_KM:g} km, {os.path.getsize(path)/1048576:.1f} MB")
+        path = os.path.join(DATA, src["out"])
+        with open(path, "w") as fh:
+            json.dump(geo, fh)
+        size = os.path.getsize(path) / 1048576
+        count = len(geo["features"])
+        if count == 0:
+            print(f"    no features in this area — widen BBOX if that's unexpected\n")
+        else:
+            print(f"    {count:,} features, {size:.1f} MB -> data/{src['out']}\n")
+
     if failed:
-        print(f"    {failed} area(s) failed to download. Run again to fill them in.")
-
-    total = sum(os.path.getsize(os.path.join(DATA, f)) for f in os.listdir(DATA))
-    print(f"\nData total: {total/1048576:.1f} MB")
-    print("Done. Open index.html and everything should be there.")
+        print("Incomplete: " + ", ".join(failed))
+        print("Run  python3 fetch.py --check  to see which sources are down.")
+        print("The map still opens; missing layers show as unavailable.")
+    else:
+        print("Done. Open index.html and everything should be there.")
     return 0
 
 
