@@ -1015,16 +1015,28 @@ function build(L,geoj){
   if(L.custom){
     map.addLayer({id:L.id+"-f",type:"circle",source:L.id,layout:{visibility:vis},
       filter:["==",["geometry-type"],"Point"],
-      paint:{"circle-radius":8,"circle-color":"#E5007D",
+      paint:{"circle-radius":11,
+             "circle-color":["case",["==",["get","status"],"known deposit"],"#5C5548","#E5007D"],
              "circle-stroke-width":2.2,"circle-stroke-color":"#FFFFFF"}});
     map.addLayer({id:L.id+"-l",type:"line",source:L.id,layout:{visibility:vis},
       filter:["!=",["geometry-type"],"Point"],
       paint:{"line-color":"#E5007D","line-width":2}});
-    map.addLayer({id:L.id+"-t",type:"symbol",source:L.id,minzoom:10,
+    /* short labels — a rank number — sit inside the dot and never hide */
+    map.addLayer({id:L.id+"-t",type:"symbol",source:L.id,
+      filter:["all",["==",["geometry-type"],"Point"],
+              ["<=",["length",["coalesce",["get","label"],["get","name"],""]],3]],
       layout:{visibility:vis,
-        "text-field":["coalesce",["get","name"],["get","Name"],["get","title"],
-                      ["get","label"],["get","id"],""],
-        "text-size":12,"text-offset":[0,1.1],"text-anchor":"top",
+        "text-field":["coalesce",["get","label"],["get","name"],""],
+        "text-size":13,"text-anchor":"center","text-allow-overlap":true,
+        "text-ignore-placement":true,
+        "text-font":["Open Sans Bold","Arial Unicode MS Bold"]},
+      paint:{"text-color":"#FFFFFF"}});
+    /* anything longer is written beside the dot instead */
+    map.addLayer({id:L.id+"-t2",type:"symbol",source:L.id,minzoom:10,
+      filter:[">",["length",["coalesce",["get","label"],["get","name"],""]],3],
+      layout:{visibility:vis,
+        "text-field":["coalesce",["get","label"],["get","name"],""],
+        "text-size":12,"text-offset":[0,1.2],"text-anchor":"top",
         "text-allow-overlap":false},
       paint:{"text-color":"#7A0044","text-halo-color":"rgba(255,255,255,.95)",
              "text-halo-width":2}});
@@ -1166,7 +1178,7 @@ map.on("click",function(e){
 });
 
 function setVisible(L,on){
-  ["-f","-l","-t"].forEach(function(s){
+  ["-f","-l","-t","-t2"].forEach(function(s){
     if(map.getLayer(L.id+s)) map.setLayoutProperty(L.id+s,"visibility",on?"visible":"none");
   });
   if(L.id==="geology") document.getElementById("legend").classList.toggle("on",on);
